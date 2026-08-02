@@ -1275,6 +1275,25 @@
     window._soriTestRemoteList = fetchRemoteList;
     window._soriPollRemote = pollRemote;
 
+    // 링크 한 번으로 설정하기 (2026-08-02).
+    // 주소 끝에 #list=<인코딩한 목록주소> 를 붙여 열면 저장하고 곧바로 받아온다.
+    // 폰에서 긴 비밀 주소를 손으로 넣는 게 너무 번거로워서 만든 통로다.
+    // 저장한 뒤 주소창에서 지운다 — 비밀 주소가 화면이나 방문 기록에 남지 않게.
+    let linkSetupUrl = '';
+    try {
+      const m = (location.hash || '').match(/(?:^#|&)list=([^&]*)/);
+      if (m && m[1]) {
+        const u = decodeURIComponent(m[1].replace(/\+/g, ' ')).trim();
+        if (/^https:\/\//.test(u)) {
+          localStorage.setItem(REMOTE_URL_KEY, u);
+          linkSetupUrl = u;
+          history.replaceState(null, '', location.pathname);
+          const box = document.getElementById('remoteListUrl');
+          if (box) box.value = u;
+        }
+      }
+    } catch (e) {}
+
     // 초기 1회 + 3초마다 폴링 (맥 사이드카)
     pollSidecar();
     sidecarTimer = setInterval(pollSidecar, 3000);
@@ -1282,7 +1301,20 @@
     // 원격 목록은 하루 한 번 바뀌므로 5분 간격이면 충분하다. 3초로 두면 GitHub 을 괜히 두드린다.
     // 첫 확인을 8초 늦추는 이유: 맥에서는 그 사이에 사이드카가 먼저 성공해
     // sidecarEverLoaded 가 서고, 위 가드가 확실히 작동한다. (주소 저장 버튼은 즉시 확인해 줌)
-    setTimeout(pollRemote, 8000);
+    // 링크로 방금 설정한 경우엔 기다릴 이유가 없다 — 사용자가 결과를 보려고 누른 것이다.
+    if (linkSetupUrl) {
+      fetchRemoteList(linkSetupUrl).then(d => {
+        const n = (d && Array.isArray(d.items)) ? d.items.length : 0;
+        const el = document.getElementById('status');
+        if (el) el.textContent = `✅ 목록 주소를 저장했어요 — ${n}건을 받아옵니다`;
+        pollRemote();
+      }).catch(() => {
+        const el = document.getElementById('status');
+        if (el) el.textContent = '⚠️ 목록 주소를 읽지 못했어요 — 설정에서 다시 넣어 주세요';
+      });
+    } else {
+      setTimeout(pollRemote, 8000);
+    }
     setInterval(pollRemote, 5 * 60 * 1000);
     // 앱을 다시 열었을 때(폰에서 흔한 경우) 곧바로 확인한다.
     document.addEventListener('visibilitychange', function () {
