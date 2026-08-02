@@ -683,6 +683,11 @@
   try { localStorage.setItem('_ls_test_', '1'); localStorage.removeItem('_ls_test_'); _lsAvailable = true; }
   catch(e) { console.warn('localStorage 사용 불가:', e); }
   let browserUtterance = null, currentAudio = null;
+  // 아이폰 대비: 화면이 잠기면 새 Audio 객체의 play() 가 거부된다. 문장마다 새로 만들지 않고
+  // 이 요소 하나를 재사용하면(같은 요소의 src 교체는 허용) 잠금 중에도 다음 문장으로 넘어간다. (2026-08-02)
+  const playerEl = new Audio();
+  playerEl.setAttribute('playsinline', '');
+  let bgPlayPending = false;   // 잠금 중 play() 가 거부됐음 — 화면이 켜지면 이어 재생
   const audioCache = new Map(); // chunkIdx -> Promise<Audio>
   const MAX_CONCURRENT = 5;
   let activeFetches = 0;
@@ -1233,7 +1238,19 @@
         if (ts <= mark) { lastRemoteTs = mark; return; }
         // 재생 중이면 목록을 흔들지 않는다. 워터마크를 안 올리므로 다음 폴링에서 반영된다.
         if (isBusyPlaying()) return;
-        applySync(d.items);
+        // 사용자가 지운 연재물(blog:)은 다시 넣지 않는다 — rememberBlogTombstone 이 기록한 id.
+        // 원격 목록에서 아예 빠진 id 는 기록에서 지워 무한히 쌓이지 않게 한다.
+        let items = d.items;
+        try {
+          const tomb = JSON.parse(localStorage.getItem('sori_blog_tombstone') || '[]');
+          if (tomb.length) {
+            items = d.items.filter(it => it && tomb.indexOf(it.id) < 0);
+            const present = new Set(d.items.map(it => it && it.id));
+            const kept = tomb.filter(id => present.has(id));
+            if (kept.length !== tomb.length) localStorage.setItem('sori_blog_tombstone', JSON.stringify(kept));
+          }
+        } catch (e) {}
+        if (items.length) applySync(items);
         lastRemoteTs = ts;
         try { localStorage.setItem(REMOTE_TS_KEY, String(ts)); } catch (e) {}
       }).catch(function () { /* 인터넷 없음·주소 틀림 — 조용히 넘어간다 */ });
@@ -2116,6 +2133,7 @@
         }
         const idx = parseInt(el.dataset.idx);
         if (action === 'del') {
+          rememberBlogTombstone(textList[idx] && textList[idx].id);
           textList.splice(idx, 1);
           bumpInjectWatermark();
         } else if (action === 'up' && idx > 0) {
@@ -2166,9 +2184,23 @@
     } catch (e) {}
   }
 
+  // 지운 연재물이 원격 목록(비밀 Gist)으로 다음 날 되살아나는 걸 막는 기록. (2026-08-02)
+  // 영상(yt:)은 기록하지 않는다 — "나중에 볼 동영상"이 상위 목록이라, 되살아나는 게 맞는 동작이다
+  // (지우고 싶으면 유튜브 앱에서 빼면 된다). 연재물은 그런 상위 목록이 없어서 여기서 기억한다.
+  // 기록 청소는 원격 폴링 쪽에서 한다: 원격 목록에서 빠진 id 의 기록은 자동으로 지워진다.
+  function rememberBlogTombstone(id) {
+    if (!id || !String(id).startsWith('blog:')) return;
+    try {
+      const t = JSON.parse(localStorage.getItem('sori_blog_tombstone') || '[]');
+      if (t.indexOf(id) < 0) t.push(id);
+      localStorage.setItem('sori_blog_tombstone', JSON.stringify(t.slice(-50)));
+    } catch (e) {}
+  }
+
   $('textListClearBtn').addEventListener('click', () => {
     if (!textList.length) return;
     if (!confirm('목록을 모두 삭제할까요?')) return;
+    textList.forEach(it => rememberBlogTombstone(it && it.id));
     textList.length = 0;
     bumpInjectWatermark();
     renderTextList();
@@ -2565,10 +2597,13 @@
     }
     if (sid !== playSession || isStopped) return;
     audioCache.delete(chunkIndex);
-    currentAudio = audio;
+    // 캐시된 Audio 는 소리를 담아온 그릇일 뿐 — 재생은 항상 playerEl 하나로 한다 (위 선언부 참고).
+    playerEl.src = audio.src;
+    currentAudio = playerEl;
     statusEl().textContent = '🔊 읽는 중...';
 
     highlightChunk(chunkIndex);
+    updateMediaSession();
 
     const startPct = Math.round((chunkIndex > 0 ? cumChars[chunkIndex - 1] : 0) / totalChars * 100);
     const endPct   = Math.round(cumChars[chunkIndex] / totalChars * 100);
@@ -2577,7 +2612,15 @@
 
     currentAudio.onended = () => { if (!isStopped) { clearProgressTimer(); chunkIndex++; playNextChunk(); } };
     currentAudio.onerror = () => { if (!isStopped) { clearProgressTimer(); showError('오디오 재생 오류'); setButtons(false); } };
-    currentAudio.play();
+    // 잠금 중 play() 가 그래도 거부되면(기기·iOS 버전에 따라 다름) 조용히 표시만 남기고,
+    // 화면이 켜지는 순간 아래 visibilitychange 에서 이어 재생한다. 오류창을 띄우지 않는 이유:
+    // 주머니 속에서 오류가 쌓여 있으면 꺼냈을 때 재생 상태가 엉켜 보인다.
+    const playP = currentAudio.play();
+    if (playP && playP.catch) playP.catch(() => {
+      if (isStopped || sid !== playSession) return;
+      bgPlayPending = true;
+      statusEl().textContent = '⏸ 잠금 중 멈춤 — 화면을 켜면 이어서 읽어요';
+    });
 
     const startTimer = () => {
       const dur = currentAudio ? currentAudio.duration : NaN;
@@ -2597,6 +2640,37 @@
       setTimeout(() => { if (!progressTimer && !isStopped) startTimer(); }, 100);
     }
   }
+
+  // ── 잠금화면 제어 + 잠금 복구 (2026-08-02) ─────────
+  // 잠금화면·컨트롤센터의 재생/일시정지/이전/다음 버튼을 앱 버튼과 같은 동작에 연결한다.
+  // 버튼 클릭을 그대로 쓰는 이유: 재생 상태 분기(시작/일시정지/재개)를 두 벌 만들지 않기 위해.
+  let lastMediaTitle = '';
+  function updateMediaSession() {
+    try {
+      if (!('mediaSession' in navigator)) return;
+      const t = (currentPlayingItem && currentPlayingItem.title) ? currentPlayingItem.title : '소리내어 읽기';
+      if (t === lastMediaTitle) return;
+      navigator.mediaSession.metadata = new MediaMetadata({ title: t, artist: '소리내어 읽기' });
+      lastMediaTitle = t;
+    } catch (e) { /* 미지원 브라우저 — 없어도 재생엔 지장 없음 */ }
+  }
+  try {
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.setActionHandler('play',  () => $('playBtn').click());
+      navigator.mediaSession.setActionHandler('pause', () => $('playBtn').click());
+      navigator.mediaSession.setActionHandler('previoustrack', () => $('prevBtn').click());
+      navigator.mediaSession.setActionHandler('nexttrack', () => $('nextBtn').click());
+    }
+  } catch (e) {}
+  // 잠금 중 거부된 재생을 화면이 켜질 때 이어간다 (playNextChunk 의 catch 와 한 쌍).
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden || !bgPlayPending) return;
+    bgPlayPending = false;
+    if (currentAudio && !isStopped) {
+      statusEl().textContent = '🔊 읽는 중...';
+      currentAudio.play().catch(() => {});
+    }
+  });
 
   // ── 유틸 ─────────────────────────────────────────
   const statusEl = () => $('status');
