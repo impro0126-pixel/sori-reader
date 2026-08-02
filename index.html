@@ -1113,11 +1113,22 @@
       });
       if (!wanted.size) return;   // 빈 목록으로 전부 지우는 사고 방지
 
+      // 같은 글이 "id 있는 판"과 "id 없는 판"으로 두 번 남는 걸 막는다. (2026-08-02)
+      // 연재물·토스테크는 예전에 맥으로 id 없이 낱개 주입됐다. 이제 목록 전체에 id 를 달아
+      // 보내므로, 옛 낱개판이 그대로 있으면 같은 글이 두 개로 보인다.
+      // 본문이 같으면 옛 판으로 보고 지운다 — 사용자가 손으로 넣은 글은 본문이 겹칠 리 없다.
+      const wantedTexts = new Set();
+      wanted.forEach(w => wantedTexts.add((w.text || '').trim()));
+
       const next = [];
       const seen = new Set();
       textList.forEach(item => {
         // id 없는 항목 = 사용자가 손으로 넣은 글. 동기화 대상이 아니므로 건드리지 않는다.
-        if (!item.id) { next.push(item); return; }
+        // 단, 위에서 걸러낸 "옛 낱개판"은 예외로 지운다.
+        if (!item.id) {
+          if (!wantedTexts.has((item.text || '').trim())) next.push(item);
+          return;
+        }
         const w = wanted.get(item.id);
         if (!w) return;                     // 목록에서 빠짐 → 삭제
         // 같은 항목은 "객체를 새로 만들지 않고" 내용만 갱신한다.
@@ -1158,6 +1169,21 @@
 
     // 사이드카 _inject.js를 매번 새 <script>로 가져와 평가한다.
     // 타임스탬프 비교로 새 항목만 추가 (같은 _inject.js를 여러 번 평가해도 중복 X).
+    // 사용자가 ✕ 로 지운 항목을 목록에서 걸러낸다. (2026-08-02)
+    // 맥 통로(_inject.js)와 아이폰 통로(Gist)가 **같은 규칙**을 쓰도록 하나로 뽑았다.
+    // 한쪽에만 적용하면 그 기기에서만 지운 글이 다음 날 되살아난다.
+    // 원격 목록에서 아예 빠진 id 의 기록은 지워 무한히 쌓이지 않게 한다.
+    function dropTombstoned(items) {
+      try {
+        const tomb = JSON.parse(localStorage.getItem('sori_blog_tombstone') || '[]');
+        if (!tomb.length) return items;
+        const present = new Set(items.map(it => it && it.id));
+        const kept = tomb.filter(id => present.has(id));
+        if (kept.length !== tomb.length) localStorage.setItem('sori_blog_tombstone', JSON.stringify(kept));
+        return items.filter(it => it && tomb.indexOf(it.id) < 0);
+      } catch (e) { return items; }
+    }
+
     let sidecarMisses = 0;   // 연속 실패 횟수 (사이드카가 없는 곳에서 폴링을 멈추려고)
     let sidecarTimer = null;
     let sidecarEverLoaded = false;   // 한 번이라도 성공 = 맥에서 열렸다는 뜻
@@ -1178,7 +1204,7 @@
             if (Array.isArray(syncItems) && syncItems.length && syncTs > syncMark) {
               // 재생 중이면 목록을 흔들지 않는다. 워터마크를 안 올리므로 재생이 끝난 뒤 폴링에서 반영된다.
               if (!isBusyPlaying()) {
-                applySync(syncItems);
+                applySync(dropTombstoned(syncItems));
                 lastSyncTs = syncTs;
                 try { localStorage.setItem(SYNC_TS_KEY, String(syncTs)); } catch (e) {}
               }
@@ -1253,18 +1279,8 @@
         if (ts <= mark) { lastRemoteTs = mark; return; }
         // 재생 중이면 목록을 흔들지 않는다. 워터마크를 안 올리므로 다음 폴링에서 반영된다.
         if (isBusyPlaying()) return;
-        // 사용자가 지운 연재물(blog:)은 다시 넣지 않는다 — rememberBlogTombstone 이 기록한 id.
-        // 원격 목록에서 아예 빠진 id 는 기록에서 지워 무한히 쌓이지 않게 한다.
-        let items = d.items;
-        try {
-          const tomb = JSON.parse(localStorage.getItem('sori_blog_tombstone') || '[]');
-          if (tomb.length) {
-            items = d.items.filter(it => it && tomb.indexOf(it.id) < 0);
-            const present = new Set(d.items.map(it => it && it.id));
-            const kept = tomb.filter(id => present.has(id));
-            if (kept.length !== tomb.length) localStorage.setItem('sori_blog_tombstone', JSON.stringify(kept));
-          }
-        } catch (e) {}
+        // 사용자가 지운 항목은 다시 넣지 않는다 (맥 통로와 같은 규칙 — 위 dropTombstoned).
+        const items = dropTombstoned(d.items);
         if (items.length) applySync(items);
         lastRemoteTs = ts;
         try { localStorage.setItem(REMOTE_TS_KEY, String(ts)); } catch (e) {}
