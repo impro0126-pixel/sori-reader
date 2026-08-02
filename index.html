@@ -374,7 +374,7 @@
     <div class="offline-row">
       <span id="offlineStatus" class="text-char-count"></span>
       <span style="display:flex; gap:4px; flex-shrink:0; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
-        <label title="켜면 새 글이 올 때 목록 전체를 미리 받습니다. 집 와이파이에서 쓰세요 — 밖에서 켜두면 재생이 밀릴 수 있습니다. (들은 글은 이 설정과 무관하게 늘 저장됩니다)" style="font-size:0.72rem; color:#8890cc; display:flex; align-items:center; gap:3px; cursor:pointer; white-space:nowrap;">
+        <label title="새 글이 오면 알아서 차례대로 미리 받아 둡니다. 재생 중에는 멈췄다가 끝나면 이어서 받습니다." style="font-size:0.72rem; color:#8890cc; display:flex; align-items:center; gap:3px; cursor:pointer; white-space:nowrap;">
           <input type="checkbox" id="offlineAuto" style="margin:0;"/>자동
         </label>
         <button id="offlineSaveBtn" class="text-del-btn">📥 오프라인 저장</button>
@@ -2762,10 +2762,12 @@
   function maybeAutoDownload(missing) {
     if (!missing || odlBusy || odlUserStopped) return;
     if (currentEngine === 'browser') return;          // 내장 음성은 저장 대상 아님
-    // 기본은 꺼짐이다 (2026-08-02 저녁 변경). 켜져 있던 동안 밖에서 듣다가 요청이 몰려
-    // 세 번째 글부터 재생이 실패한 일이 있었다. "듣는 것은 저장"(rememberClip)은 그대로
-    // 자동이라 추가 비용·요청이 없고, 목록 전체를 미리 받는 건 이제 사용자가 누를 때만 한다.
-    try { if (localStorage.getItem(AUTO_KEY) !== '1') return; } catch (e) { return; }
+    // 기본 켜짐. 단, 사고를 겪고 조건을 바꿔서 되살린 것이다 (2026-08-02).
+    //   1차: 기본 켜짐 → 밖에서 듣는 중에도 계속 받아 요청이 몰렸고 셋째 글부터 재생 실패(429).
+    //   2차: 기본 꺼짐으로 후퇴.
+    //   3차(지금): 기본 켜짐이되 **재생 중에는 완전히 멈추고**, 배경일 땐 2개씩 천천히 받는다.
+    // 되살릴 때 반드시 함께 지켜야 할 것 — 재생 중 정지, 낮은 동시 수, 429 시 세션 중단.
+    try { if (localStorage.getItem(AUTO_KEY) === '0') return; } catch (e) {}
     // 재생 중이어도 시작한다 — 대신 아래 일꾼이 하나로 줄어 천천히 받는다. (2026-08-02 변경)
     // 예전엔 여기서 아예 멈췄는데, 집에서 앱을 열자마자 재생을 누르면 준비가 영영 안 됐다.
     clearTimeout(odlAutoTimer);
@@ -2803,28 +2805,27 @@
     let done = 0, failed = 0;
     const queue = needed.slice();
     const nap = ms => new Promise(r => setTimeout(r, ms));
-    // 재생 중에는 0번 일꾼만 계속하고 나머지는 쉰다. (2026-08-02)
-    // 재생도 같은 API 를 쓰면서 읽을 문장을 최대 5개씩 당겨받는다. 여기에 4개가 겹치면
-    // 동시 9개가 몰려 요청 제한에 걸리고 듣던 게 끊긴다. 하나로 줄이면 총 6개 남짓이라 견딘다.
-    const worker = async (slot) => {
+    // ⚠️ 재생 중에는 **전부 멈춘다.** (2026-08-02, 사고 후 강화)
+    //    처음엔 "재생 중에도 1개씩"으로 뒀다가, 밖에서 듣던 중 요청이 몰려 셋째 글부터
+    //    재생이 실패했다. 재생도 읽을 문장을 최대 5개씩 당겨받으므로 여기서 한 개만 더해도
+    //    통신이 나쁜 곳에선 한계를 넘는다. **듣기가 언제나 우선** — 이 정지를 빼지 말 것.
+    // 배경(자동)일 땐 2개씩, 사용자가 버튼을 눌렀을 땐 4개씩. 누른 사람은 기다리고 있으니까.
+    const workers = auto ? 2 : 4;
+    const worker = async () => {
       while (queue.length && !odlAbort) {
-        if (offlineIsPlaying()) {
-          if (slot > 0) { await nap(4000); continue; }   // 보조 일꾼은 재생이 끝날 때까지 대기
-          await nap(1500);                               // 0번도 한 박자 쉬어 가며 받는다
-          if (odlAbort) break;
-        }
+        if (offlineIsPlaying()) { await nap(3000); continue; }   // 재생 끝날 때까지 대기
         const text = queue.shift();
         if (text === undefined) continue;
         try { await saveClip(text); } catch (e) { failed++; }
         done++;
         if (done % 3 === 0 || done === total) {
-          refreshOfflineStatus(`받는 중 ${done}/${total}${failed ? ` (실패 ${failed})` : ''}`
-            + (offlineIsPlaying() ? ' — 듣는 동안 천천히 받는 중' : ' — 이 화면을 켜 두세요'));
+          refreshOfflineStatus(`받는 중 ${done}/${total}${failed ? ` (실패 ${failed})` : ''} — 이 화면을 켜 두세요`);
         }
+        if (auto) await nap(400);   // 배경 작업은 한 박자 쉬어 가며 — 요청이 몰리지 않게
       }
     };
     try {
-      await Promise.all([worker(0), worker(1), worker(2), worker(3)]);
+      await Promise.all(Array.from({ length: workers }, () => worker()));
       if (!odlAbort) {
         const keep = new Set(needed.map(clipKey));
         const all = await odbKeys();
@@ -2850,7 +2851,7 @@
     });
 
     const autoBox = $('offlineAuto');
-    try { autoBox.checked = localStorage.getItem(AUTO_KEY) === '1'; } catch (e) { autoBox.checked = false; }
+    try { autoBox.checked = localStorage.getItem(AUTO_KEY) !== '0'; } catch (e) { autoBox.checked = true; }
     autoBox.addEventListener('change', () => {
       try { localStorage.setItem(AUTO_KEY, autoBox.checked ? '1' : '0'); } catch (e) {}
       if (autoBox.checked) { odlUserStopped = false; refreshOfflineStatus(); }
