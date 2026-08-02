@@ -1140,6 +1140,7 @@
     // 타임스탬프 비교로 새 항목만 추가 (같은 _inject.js를 여러 번 평가해도 중복 X).
     let sidecarMisses = 0;   // 연속 실패 횟수 (사이드카가 없는 곳에서 폴링을 멈추려고)
     let sidecarTimer = null;
+    let sidecarEverLoaded = false;   // 한 번이라도 성공 = 맥에서 열렸다는 뜻
 
     function pollSidecar() {
       try {
@@ -1147,6 +1148,7 @@
         s.src = '_inject.js?t=' + Date.now();
         s.onload = function () {
           sidecarMisses = 0;
+          sidecarEverLoaded = true;
           try {
             // (1) 목록 동기화 신호가 먼저다. 낱개 주입과 달리 목록 전체를 다룬다.
             const syncTs = (typeof window._injectedSyncTs === 'number') ? window._injectedSyncTs : 0;
@@ -1214,6 +1216,11 @@
     }
 
     function pollRemote() {
+      // 맥에서는 원격 목록을 무시한다. 사이드카가 한 번이라도 읽혔다 = 맥에서 열린 것.
+      // 맥에 원격을 허용하면 사이드카 sync(yt:만 관리)가 원격이 넣은 blog: 항목을
+      // 매일 19시에 지우고, 낱개 주입된 연재물(id 없음)과 중복도 생긴다.
+      // 실수로 맥 설정에 주소를 넣어도 이 가드가 막는다.
+      if (sidecarEverLoaded) return;
       let url = '';
       try { url = (localStorage.getItem(REMOTE_URL_KEY) || '').trim(); } catch (e) {}
       if (!url) return;
@@ -1241,7 +1248,9 @@
     sidecarTimer = setInterval(pollSidecar, 3000);
 
     // 원격 목록은 하루 한 번 바뀌므로 5분 간격이면 충분하다. 3초로 두면 GitHub 을 괜히 두드린다.
-    pollRemote();
+    // 첫 확인을 8초 늦추는 이유: 맥에서는 그 사이에 사이드카가 먼저 성공해
+    // sidecarEverLoaded 가 서고, 위 가드가 확실히 작동한다. (주소 저장 버튼은 즉시 확인해 줌)
+    setTimeout(pollRemote, 8000);
     setInterval(pollRemote, 5 * 60 * 1000);
     // 앱을 다시 열었을 때(폰에서 흔한 경우) 곧바로 확인한다.
     document.addEventListener('visibilitychange', function () {
