@@ -2528,6 +2528,7 @@
     }
     catch(e) {
       if (sid !== playSession) return;
+      haltOfflineOnPlaybackError(e);
       if (tryAzureFallback(e)) return;
       showError('오류: ' + (e.message || e)); setButtons(false); return;
     }
@@ -2569,7 +2570,17 @@
     if (!resp.ok) {
       const e = await resp.json().catch(() => ({}));
       if (resp.status === 401) throw new Error('API 키가 올바르지 않습니다.\n→ platform.openai.com/api-keys 에서 키를 다시 확인해 주세요.');
-      if (resp.status === 429) throw new Error('크레딧이 부족합니다. platform.openai.com/settings/billing 에서 충전해 주세요.');
+      // 429 는 "요청이 너무 잦음"과 "잔액 없음" 둘 다에 쓰인다. 예전엔 무조건 크레딧 부족이라고
+      // 표시해서, 실제로는 요청이 몰린 것뿐인데 충전하러 가게 만들었다. 응답 본문으로 구분한다.
+      if (resp.status === 429) {
+        const m = (e.error?.message || '') + (e.error?.code || '');
+        const quota = /quota|billing|insufficient/i.test(m);
+        const err = new Error(quota
+          ? '크레딧이 부족합니다. platform.openai.com/settings/billing 에서 충전해 주세요.'
+          : '요청이 잠시 몰렸습니다. 잠깐 뒤에 다시 눌러 주세요.\n(오프라인 저장이 함께 돌고 있으면 목록 아래 "자동"을 꺼 보세요)');
+        err.isRateLimit = !quota;
+        throw err;
+      }
       throw new Error(e.error?.message || `오류 코드: HTTP ${resp.status}`);
     }
     const a = new Audio(URL.createObjectURL(await resp.blob()));
@@ -2717,6 +2728,18 @@
         : `🎧 문장 ${keys.size}개 저장됨${mb} — 신호 없어도 재생돼요`;
       maybeAutoDownload(missing);
     } catch (e) { el.textContent = ''; }
+  }
+
+  // 재생이 요청 제한에 걸리면 받기를 즉시 멈춘다. (2026-08-02)
+  // 듣는 것이 언제나 우선이다 — 미리 받아두는 건 편의일 뿐인데, 그것 때문에 지금 듣는 게
+  // 끊기면 앞뒤가 바뀐 것이다. 이 세션에는 자동으로 다시 시작하지도 않는다
+  // (다시 시작하면 같은 제한에 또 걸려 재생이 계속 실패한다).
+  function haltOfflineOnPlaybackError(e) {
+    if (!e || !e.isRateLimit) return;
+    if (odlBusy) odlAbort = true;
+    odlUserStopped = true;
+    clearTimeout(odlAutoTimer);
+    refreshOfflineStatus('재생이 밀려 미리 받기를 멈췄습니다 — 잠시 뒤 "오프라인 저장"으로 이어받으세요');
   }
 
   // 지금 목록에 없는 저장분을 치운다. (2026-08-02)
@@ -2873,6 +2896,7 @@
       audio = await audioCache.get(chunkIndex);
     } catch(e) {
       if (sid !== playSession || isStopped) return;
+      haltOfflineOnPlaybackError(e);
       if (tryAzureFallback(e)) return;
       showError('오디오 로드 실패: ' + (e.message || e)); setButtons(false); return;
     }
