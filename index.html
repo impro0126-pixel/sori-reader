@@ -2809,11 +2809,15 @@
     //    처음엔 "재생 중에도 1개씩"으로 뒀다가, 밖에서 듣던 중 요청이 몰려 셋째 글부터
     //    재생이 실패했다. 재생도 읽을 문장을 최대 5개씩 당겨받으므로 여기서 한 개만 더해도
     //    통신이 나쁜 곳에선 한계를 넘는다. **듣기가 언제나 우선** — 이 정지를 빼지 말 것.
-    // 배경(자동)일 땐 2개씩, 사용자가 버튼을 눌렀을 땐 4개씩. 누른 사람은 기다리고 있으니까.
-    const workers = auto ? 2 : 4;
+    // 자동이든 수동이든 같은 속도로 받는다 (2026-08-02, 속도 개선).
+    // 예전엔 자동일 때 2개씩 + 400ms 쉼으로 일부러 느리게 했는데, 그 느림은
+    // "재생과 겹칠 때"를 걱정한 것이었다. 그런데 재생 중에는 아래에서 어차피 완전히 멈추므로
+    // 겹칠 일이 없다 — 이중으로 조심하느라 8분 걸리던 걸 2분에서 3분으로 줄였다.
+    // 재생 중 정지(아래 offlineIsPlaying)가 안전장치의 본체다. 그건 절대 빼지 말 것.
+    const workers = 4;
     const worker = async () => {
       while (queue.length && !odlAbort) {
-        if (offlineIsPlaying()) { await nap(3000); continue; }   // 재생 끝날 때까지 대기
+        if (offlineIsPlaying()) { await nap(1500); continue; }   // 재생 끝날 때까지 대기
         const text = queue.shift();
         if (text === undefined) continue;
         try { await saveClip(text); } catch (e) { failed++; }
@@ -2821,7 +2825,6 @@
         if (done % 3 === 0 || done === total) {
           refreshOfflineStatus(`받는 중 ${done}/${total}${failed ? ` (실패 ${failed})` : ''} — 이 화면을 켜 두세요`);
         }
-        if (auto) await nap(400);   // 배경 작업은 한 박자 쉬어 가며 — 요청이 몰리지 않게
       }
     };
     try {
