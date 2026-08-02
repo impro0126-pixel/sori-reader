@@ -374,7 +374,7 @@
     <div class="offline-row">
       <span id="offlineStatus" class="text-char-count"></span>
       <span style="display:flex; gap:4px; flex-shrink:0; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
-        <label title="새 글이 오면 알아서 미리 받아 둡니다" style="font-size:0.72rem; color:#8890cc; display:flex; align-items:center; gap:3px; cursor:pointer; white-space:nowrap;">
+        <label title="켜면 새 글이 올 때 목록 전체를 미리 받습니다. 집 와이파이에서 쓰세요 — 밖에서 켜두면 재생이 밀릴 수 있습니다. (들은 글은 이 설정과 무관하게 늘 저장됩니다)" style="font-size:0.72rem; color:#8890cc; display:flex; align-items:center; gap:3px; cursor:pointer; white-space:nowrap;">
           <input type="checkbox" id="offlineAuto" style="margin:0;"/>자동
         </label>
         <button id="offlineSaveBtn" class="text-del-btn">📥 오프라인 저장</button>
@@ -2762,7 +2762,10 @@
   function maybeAutoDownload(missing) {
     if (!missing || odlBusy || odlUserStopped) return;
     if (currentEngine === 'browser') return;          // 내장 음성은 저장 대상 아님
-    try { if (localStorage.getItem(AUTO_KEY) === '0') return; } catch (e) {}
+    // 기본은 꺼짐이다 (2026-08-02 저녁 변경). 켜져 있던 동안 밖에서 듣다가 요청이 몰려
+    // 세 번째 글부터 재생이 실패한 일이 있었다. "듣는 것은 저장"(rememberClip)은 그대로
+    // 자동이라 추가 비용·요청이 없고, 목록 전체를 미리 받는 건 이제 사용자가 누를 때만 한다.
+    try { if (localStorage.getItem(AUTO_KEY) !== '1') return; } catch (e) { return; }
     // 재생 중이어도 시작한다 — 대신 아래 일꾼이 하나로 줄어 천천히 받는다. (2026-08-02 변경)
     // 예전엔 여기서 아예 멈췄는데, 집에서 앱을 열자마자 재생을 누르면 준비가 영영 안 됐다.
     clearTimeout(odlAutoTimer);
@@ -2847,7 +2850,7 @@
     });
 
     const autoBox = $('offlineAuto');
-    try { autoBox.checked = localStorage.getItem(AUTO_KEY) !== '0'; } catch (e) { autoBox.checked = true; }
+    try { autoBox.checked = localStorage.getItem(AUTO_KEY) === '1'; } catch (e) { autoBox.checked = false; }
     autoBox.addEventListener('change', () => {
       try { localStorage.setItem(AUTO_KEY, autoBox.checked ? '1' : '0'); } catch (e) {}
       if (autoBox.checked) { odlUserStopped = false; refreshOfflineStatus(); }
