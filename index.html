@@ -429,10 +429,10 @@
     <div class="offline-row">
       <span id="offlineStatus" class="text-char-count"></span>
       <span style="display:flex; gap:4px; flex-shrink:0; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
-        <label title="새 글이 오면 알아서 차례대로 미리 받아 둡니다. 재생 중에는 멈췄다가 끝나면 이어서 받습니다." style="font-size:0.72rem; color:#8890cc; display:flex; align-items:center; gap:3px; cursor:pointer; white-space:nowrap;">
+        <label title="새 영상 요약이 오면 알아서 차례대로 미리 받아 둡니다. 재생 중에는 멈췄다가 끝나면 이어서 받습니다. (블로그 글은 미리 받지 않습니다)" style="font-size:0.72rem; color:#8890cc; display:flex; align-items:center; gap:3px; cursor:pointer; white-space:nowrap;">
           <input type="checkbox" id="offlineAuto" style="margin:0;"/>자동
         </label>
-        <button id="offlineSaveBtn" class="text-del-btn">📥 오프라인 저장</button>
+        <button id="offlineSaveBtn" class="text-del-btn" title="유튜브 요약만 미리 받습니다. 블로그 글은 들으면서 저장돼요.">📥 오프라인 저장</button>
         <button id="offlineClearBtn" class="text-del-btn">🧹 저장분 삭제</button>
       </span>
     </div>
@@ -2816,6 +2816,14 @@
     } catch (e) { return false; }
   }
 
+  // 미리 받을 대상은 **유튜브 묶음뿐**이다. (2026-08-02 사용자 지시 "블로그는 미리 내려받지 마")
+  // 웹소설이 매일 두 편씩 쌓이고 자동으로 지워지지도 않아, 다 듣지 않을 글까지 음성을 미리
+  // 만들면 요청과 비용이 계속 늘어난다.
+  // ⚠️ "들으면서 저장"(rememberClip)은 추가 요청이 0이라 블로그도 그대로 쌓인다 — 그것까지
+  //    막는 게 아니다. 그래서 **보관 대상(cleanupOrphans 의 keep)은 목록 전체**여야 한다.
+  //    여기 대상만 좁히고 보관 기준까지 좁히면 들으며 저장한 블로그 음성이 전부 지워진다.
+  const prefetchItems = () => textList.filter(it => groupOf(it) === 'youtube');
+
   async function refreshOfflineStatus(msg) {
     const el = offlineStatusEl();
     if (!el) return;
@@ -2826,7 +2834,7 @@
       let missing = 0;
       if (currentEngine !== 'browser') {
         const seen = new Set();
-        textList.forEach(it => splitIntoSentences(it.text).forEach(c => {
+        prefetchItems().forEach(it => splitIntoSentences(it.text).forEach(c => {
           const k = clipKey(c);
           if (seen.has(k)) return;
           seen.add(k);
@@ -2835,7 +2843,7 @@
       }
       if (!keys.size) {
         el.textContent = missing
-          ? `저장된 음성 없음 · 받아둘 문장 ${missing}개 — 집에서 미리 받아두면 밖에서 신호 없이 들려요`
+          ? `저장된 음성 없음 · 영상 요약 중 받아둘 문장 ${missing}개 — 집에서 미리 받아두면 밖에서 신호 없이 들려요`
           : '저장된 음성 없음 — 들으려면 인터넷이 필요해요';
         maybeAutoDownload(missing);
         return;
@@ -2846,7 +2854,7 @@
         if (est && est.usage) mb = ' · 약 ' + (est.usage / 1048576).toFixed(0) + 'MB';
       }
       el.textContent = missing
-        ? `🎧 ${keys.size}개 저장됨${mb} · 아직 안 받은 문장 ${missing}개`
+        ? `🎧 ${keys.size}개 저장됨${mb} · 영상 요약 중 아직 안 받은 문장 ${missing}개`
         : `🎧 문장 ${keys.size}개 저장됨${mb} — 신호 없어도 재생돼요`;
       maybeAutoDownload(missing);
     } catch (e) { el.textContent = ''; }
@@ -2915,10 +2923,12 @@
     }
     if (!textList.length) { refreshOfflineStatus('목록이 비어 있어요.'); return; }
 
-    // 이번에 필요한 열쇠 목록. 끝난 뒤 이 목록에 없는 저장분은 지운다
-    // (목록에서 빠진 글, 예전 목소리로 받아둔 것 → 저장 공간을 갉아먹지 않게).
+    // 미리 받는 건 유튜브 묶음뿐이다 (prefetchItems 주석 참고).
+    const targets = prefetchItems();
+    if (!targets.length) { refreshOfflineStatus('미리 받을 영상 요약이 없어요. (블로그 글은 미리 받지 않습니다)'); return; }
+
     const needed = [];
-    textList.forEach(it => splitIntoSentences(it.text).forEach(c => needed.push(c)));
+    targets.forEach(it => splitIntoSentences(it.text).forEach(c => needed.push(c)));
     const total = needed.length;
     if (!total) { refreshOfflineStatus('받을 문장이 없어요.'); return; }
 
@@ -2952,7 +2962,11 @@
     try {
       await Promise.all(Array.from({ length: workers }, () => worker()));
       if (!odlAbort) {
-        const keep = new Set(needed.map(clipKey));
+        // ⚠️ 보관 기준은 **목록 전체**다 — 미리 받는 대상(유튜브)보다 넓다.
+        // 블로그 글은 미리 받지 않지만 들으면서 저장된 음성이 있고, 여기서 needed(유튜브만)로
+        // 좁히면 그게 매번 통째로 지워진다.
+        const keep = new Set();
+        textList.forEach(it => splitIntoSentences(it.text).forEach(c => keep.add(clipKey(c))));
         const all = await odbKeys();
         for (const k of all) if (!keep.has(k)) await odbDel(k);
       }
