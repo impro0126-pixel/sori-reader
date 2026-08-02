@@ -366,6 +366,14 @@
       <span id="textListCount" class="text-char-count"></span>
       <button id="textListClearBtn" class="text-del-btn">🗑️ 목록 전체 삭제</button>
     </div>
+    <!-- 오프라인 저장 (2026-08-02) — 집에서 미리 받아두면 밖에서 신호 없이 듣는다 -->
+    <div class="text-info-row">
+      <span id="offlineStatus" class="text-char-count"></span>
+      <span style="display:flex; gap:4px; flex-shrink:0;">
+        <button id="offlineSaveBtn" class="text-del-btn">📥 오프라인 저장</button>
+        <button id="offlineClearBtn" class="text-del-btn">🧹 저장분 삭제</button>
+      </span>
+    </div>
     <div class="text-list-hint" id="textListHint"></div>
   </div>
 
@@ -2094,6 +2102,11 @@
 
   function renderTextList() {
     saveTextList();
+    // 목록이 바뀌면 "아직 안 받은 문장" 수도 달라진다 (오프라인 저장 표시).
+    // try 로 감싼 이유: 이 함수는 스크립트 초기화 중에도 한 번 불리는데(위 2101줄),
+    // 그 시점엔 오프라인 저장 블록의 변수들이 아직 선언 전이라 건드리면 예외가 난다.
+    // 여기서 예외가 새면 목록이 통째로 안 그려진다 — 초기 표시는 그 블록 끝에서 따로 한다.
+    try { refreshOfflineStatus(); } catch (e) {}
     const list = $('textList');
     if (!textList.length) {
       list.innerHTML = '';
@@ -2516,6 +2529,13 @@
   }
 
   async function fetchAudio(text) {
+    // 미리 받아 둔 음성이 있으면 그걸 쓴다 — 신호가 없어도 재생되고 비용도 안 든다. (2026-08-02)
+    // 저장분이 없으면 예전처럼 API 로 간다. 재생 경로에서 새로 저장하지는 않는다
+    // (사용자가 "오프라인 저장"을 눌렀을 때만 쌓이게 해서, 저장 공간이 모르는 새 늘지 않게).
+    try {
+      const hit = await odbGet(clipKey(text));
+      if (hit && hit.blob) return new Audio(URL.createObjectURL(hit.blob));
+    } catch (e) { /* 저장소를 못 열어도 재생은 계속 — 아래 네트워크 경로로 */ }
     if (currentEngine === 'azure') return fetchAudioAzure(text);
     const resp = await fetch('https://api.openai.com/v1/audio/speech', {
       method: 'POST',
@@ -2560,6 +2580,156 @@
       throw new Error(`Azure 오류: HTTP ${resp.status}`);
     }
     return new Audio(URL.createObjectURL(await resp.blob()));
+  }
+
+  // ── 오프라인 음성 저장 (2026-08-02) ─────────────────
+  // 왜: 목록은 맥 없이도 폰에 남지만 소리는 재생할 때마다 API 에서 새로 받아온다.
+  //     신호가 없으면 못 듣고, 같은 글을 두 번 들으면 비용도 두 번이다.
+  //     집에서 미리 받아 두면 밖에서 신호 없이 듣고 비용도 한 번만 든다.
+  // localStorage 가 아니라 IndexedDB 인 이유: localStorage 는 문자열만, 5MB 남짓이라 음성이 안 들어간다.
+  const ODB_NAME = 'sori_audio', ODB_STORE = 'clips';
+  let odbPromise = null;
+  function odb() {
+    if (odbPromise) return odbPromise;
+    odbPromise = new Promise((res, rej) => {
+      const r = indexedDB.open(ODB_NAME, 1);
+      r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains(ODB_STORE)) r.result.createObjectStore(ODB_STORE); };
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+    return odbPromise;
+  }
+  function odbOp(mode, run) {
+    return odb().then(db => new Promise((res, rej) => {
+      const rq = run(db.transaction(ODB_STORE, mode).objectStore(ODB_STORE));
+      rq.onsuccess = () => res(rq.result);
+      rq.onerror = () => rej(rq.error);
+    }));
+  }
+  const odbGet    = k => odbOp('readonly',  st => st.get(k));
+  const odbPut    = (k, v) => odbOp('readwrite', st => st.put(v, k));
+  const odbDel    = k => odbOp('readwrite', st => st.delete(k));
+  const odbKeys   = () => odbOp('readonly',  st => st.getAllKeys());
+  const odbClear  = () => odbOp('readwrite', st => st.clear());
+
+  // 저장 열쇠 = 엔진·목소리·속도 + 문장 내용. 목소리나 속도를 바꾸면 다른 소리이므로 열쇠도 달라진다.
+  // (브라우저 내장 음성은 파일이 아니라 그때그때 합성이라 저장 대상이 아니다)
+  function voiceSig() {
+    if (currentEngine === 'azure')  return 'az|' + azVoice + '|' + $('azRate').value;
+    if (currentEngine === 'openai') return 'oa|' + oaiVoice + '|' + $('oaiRate').value + '|' + (oaiStyle || '');
+    return 'br';
+  }
+  function hashText(s) {
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+    return (h >>> 0).toString(36) + '_' + s.length;
+  }
+  const clipKey = text => voiceSig() + '|' + hashText(text);
+
+  // 한 문장을 받아 저장한다. 받아오기는 기존 fetchAudio 를 그대로 쓴다 —
+  // API 분기·오류 메시지·Azure 폴백을 두 벌로 만들지 않기 위해서다.
+  // blob URL 은 fetch 로 다시 읽어 원본 blob 을 꺼낼 수 있다.
+  async function saveClip(text) {
+    const key = clipKey(text);
+    if (await odbGet(key)) return 'skip';
+    const audio = await fetchAudio(text);
+    const blob = await (await fetch(audio.src)).blob();
+    await odbPut(key, { blob, size: blob.size, ts: Date.now() });
+    try { URL.revokeObjectURL(audio.src); } catch (e) {}
+    return 'saved';
+  }
+
+  let odlBusy = false, odlAbort = false;
+  const offlineStatusEl = () => $('offlineStatus');
+
+  async function refreshOfflineStatus(msg) {
+    const el = offlineStatusEl();
+    if (!el) return;
+    if (msg) { el.textContent = msg; return; }
+    try {
+      const keys = new Set(await odbKeys());
+      // 지금 목록 중 아직 안 받은 문장이 몇 개인지 — 버튼을 언제 눌러야 할지 알려준다.
+      let missing = 0;
+      if (currentEngine !== 'browser') {
+        const seen = new Set();
+        textList.forEach(it => splitIntoSentences(it.text).forEach(c => {
+          const k = clipKey(c);
+          if (seen.has(k)) return;
+          seen.add(k);
+          if (!keys.has(k)) missing++;
+        }));
+      }
+      if (!keys.size) {
+        el.textContent = missing
+          ? `저장된 음성 없음 · 받아둘 문장 ${missing}개 — 집에서 미리 받아두면 밖에서 신호 없이 들려요`
+          : '저장된 음성 없음 — 들으려면 인터넷이 필요해요';
+        return;
+      }
+      let mb = '';
+      if (navigator.storage && navigator.storage.estimate) {
+        const est = await navigator.storage.estimate();
+        if (est && est.usage) mb = ' · 약 ' + (est.usage / 1048576).toFixed(0) + 'MB';
+      }
+      el.textContent = missing
+        ? `🎧 ${keys.size}개 저장됨${mb} · 아직 안 받은 문장 ${missing}개`
+        : `🎧 문장 ${keys.size}개 저장됨${mb} — 신호 없어도 재생돼요`;
+    } catch (e) { el.textContent = ''; }
+  }
+
+  // 목록 전체를 미리 받는다. 동시 4개까지 — 하나씩 받으면 글 하나에 몇 분씩 걸린다.
+  async function downloadOffline() {
+    if (odlBusy) { odlAbort = true; return; }
+    if (currentEngine === 'browser') {
+      refreshOfflineStatus('브라우저 내장 음성은 미리 받을 수 없어요. 설정에서 OpenAI 나 Azure 를 선택해 주세요.');
+      return;
+    }
+    if (!textList.length) { refreshOfflineStatus('목록이 비어 있어요.'); return; }
+
+    // 이번에 필요한 열쇠 목록. 끝난 뒤 이 목록에 없는 저장분은 지운다
+    // (목록에서 빠진 글, 예전 목소리로 받아둔 것 → 저장 공간을 갉아먹지 않게).
+    const needed = [];
+    textList.forEach(it => splitIntoSentences(it.text).forEach(c => needed.push(c)));
+    const total = needed.length;
+    if (!total) { refreshOfflineStatus('받을 문장이 없어요.'); return; }
+
+    odlBusy = true; odlAbort = false;
+    $('offlineSaveBtn').textContent = '⏹ 중단';
+    let done = 0, failed = 0;
+    const queue = needed.slice();
+    const worker = async () => {
+      while (queue.length && !odlAbort) {
+        const text = queue.shift();
+        try { await saveClip(text); } catch (e) { failed++; }
+        done++;
+        if (done % 3 === 0 || done === total) {
+          refreshOfflineStatus(`받는 중 ${done}/${total}${failed ? ` (실패 ${failed})` : ''} — 이 화면을 켜 두세요`);
+        }
+      }
+    };
+    try {
+      await Promise.all([worker(), worker(), worker(), worker()]);
+      if (!odlAbort) {
+        const keep = new Set(needed.map(clipKey));
+        const all = await odbKeys();
+        for (const k of all) if (!keep.has(k)) await odbDel(k);
+      }
+    } finally {
+      odlBusy = false;
+      $('offlineSaveBtn').textContent = '📥 오프라인 저장';
+      if (odlAbort) await refreshOfflineStatus(`중단했어요 — ${done}개까지 받아 뒀습니다`);
+      else if (failed) await refreshOfflineStatus(`${total - failed}개 저장, ${failed}개 실패 — 다시 누르면 실패분만 받아요`);
+      else await refreshOfflineStatus();
+    }
+  }
+
+  if ($('offlineSaveBtn')) {
+    $('offlineSaveBtn').addEventListener('click', downloadOffline);
+    $('offlineClearBtn').addEventListener('click', async () => {
+      if (!confirm('저장해 둔 음성을 모두 지울까요?\n(글 목록은 그대로 남고, 다음 재생 때 다시 받아옵니다)')) return;
+      try { await odbClear(); } catch (e) {}
+      await refreshOfflineStatus();
+    });
+    refreshOfflineStatus();
   }
 
   // 한도 초과 시 브라우저 내장 음성으로 이어서 읽기
