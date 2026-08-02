@@ -323,9 +323,9 @@
 <div class="main-content">
 
   <div class="tabs" id="tabBar">
-    <button class="tab-btn active" data-tab="pdf">📄 PDF</button>
-    <button class="tab-btn" data-tab="text">✏️ 텍스트</button>
-    <button class="tab-btn" data-tab="image">🖼️ 이미지</button>
+    <button class="tab-btn active" data-tab="doc">📄 문서</button>
+    <button class="tab-btn" data-tab="youtube">▶️ 유튜브</button>
+    <button class="tab-btn" data-tab="blog">📝 블로그</button>
     <button class="tab-btn" data-tab="history">🕐 최근</button>
     <button class="tab-btn" data-tab="settings">⚙️ 설정</button>
   </div>
@@ -333,79 +333,36 @@
   <!-- ↓ 이 영역이 탭별 내용 스크롤 컨테이너 -->
   <div id="contentArea">
 
-  <!-- PDF -->
-  <div class="tab-panel active" id="tab-pdf">
+  <!-- 📄 문서 (PDF + 이미지 — 2026-08-02 통합) -->
+  <div class="tab-panel active" id="tab-doc">
     <div class="drop-zone" id="dropZone">
       <div class="icon">📂</div>
-      <p><span id="uploadTrigger">PDF 파일 선택</span> 또는 여기에 끌어다 놓기</p>
-      <p style="font-size:0.8rem;color:#aaa;margin-top:6px;">여러 개 한번에 선택 가능 · 지원: .pdf</p>
+      <p><span id="uploadTrigger">PDF · 이미지 파일 선택</span> 또는 여기에 끌어다 놓기</p>
+      <p style="font-size:0.8rem;color:#aaa;margin-top:6px;">여러 개 한번에 선택 가능 · .pdf · PNG · JPG · GIF · WebP</p>
     </div>
+    <!-- 파일 입력 두 개를 유지하는 이유: 아래 "➕ 추가" 영역이 종류별로 따로 있어서다.
+         위 드롭존은 fileInput 하나로 둘 다 받고 addMixedFiles 가 확장자로 가른다. -->
+    <input type="file" id="fileInput" accept=".pdf,image/*" multiple/>
+    <input type="file" id="imgInput" accept="image/*" multiple/>
+
     <!-- PDF 목록 -->
     <div id="pdfList" class="pdf-list"></div>
     <div class="pdf-add-zone" id="pdfAddZone" style="display:none;">➕ PDF 추가</div>
-    <!-- PDF 파일 정보 행 (하단) -->
     <div class="text-info-row" id="pdfInfoRow">
       <span id="pdfInfoCount" class="text-char-count"></span>
-      <button id="pdfClearAllBtn" class="text-del-btn">🗑️ 전체 삭제</button>
+      <button id="pdfClearAllBtn" class="text-del-btn">🗑️ PDF 전체 삭제</button>
     </div>
-    <input type="file" id="fileInput" accept=".pdf" multiple/>
-  </div>
-
-  <!-- 텍스트 -->
-  <div class="tab-panel" id="tab-text">
-    <!-- 🌐 URL에서 본문 가져오기 -->
-    <div style="display:flex; gap:6px; margin-bottom:12px;">
-      <input type="url" id="urlInput" placeholder="🌐 https://... 웹페이지 URL을 붙여넣어 본문 가져오기" style="flex:1; padding:9px 12px; border:1.5px solid #d5d9f5; border-radius:9px; font-size:0.85rem; font-family:inherit; background:#f9fafb; box-sizing:border-box;"/>
-      <button id="urlFetchBtn" class="text-add-btn" style="white-space:nowrap;">📥 가져오기</button>
-    </div>
-    <div style="font-size:0.85rem; color:#555; font-weight:600; margin-bottom:8px;">✏️ 텍스트 입력</div>
-    <textarea id="manualText" placeholder="여기에 텍스트를 입력하거나 붙여넣으세요..."></textarea>
-    <div class="text-info-row" id="textLoaded">
-      <span id="textMeta" class="text-char-count"></span>
-    </div>
-    <div class="text-add-row">
-      <input type="text" id="textItemTitle" placeholder="제목 (선택사항) — 비우면 본문 미리보기 사용"/>
-      <button id="textAddBtn" class="text-add-btn">➕ 목록에 추가</button>
-    </div>
-    <div id="textList" class="text-list"></div>
-    <div class="text-info-row" id="textListInfoRow">
-      <span id="textListCount" class="text-char-count"></span>
-      <button id="textListClearBtn" class="text-del-btn">🗑️ 목록 전체 삭제</button>
-    </div>
-    <!-- 오프라인 저장 (2026-08-02) — 집에서 미리 받아두면 밖에서 신호 없이 듣는다 -->
-    <div class="offline-row">
-      <span id="offlineStatus" class="text-char-count"></span>
-      <span style="display:flex; gap:4px; flex-shrink:0; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
-        <label title="새 글이 오면 알아서 차례대로 미리 받아 둡니다. 재생 중에는 멈췄다가 끝나면 이어서 받습니다." style="font-size:0.72rem; color:#8890cc; display:flex; align-items:center; gap:3px; cursor:pointer; white-space:nowrap;">
-          <input type="checkbox" id="offlineAuto" style="margin:0;"/>자동
-        </label>
-        <button id="offlineSaveBtn" class="text-del-btn">📥 오프라인 저장</button>
-        <button id="offlineClearBtn" class="text-del-btn">🧹 저장분 삭제</button>
-      </span>
-    </div>
-    <div class="text-list-hint" id="textListHint"></div>
-  </div>
-
-  <!-- 🖼️ 이미지 -->
-  <div class="tab-panel" id="tab-image">
-    <div class="drop-zone" id="imgDropZone">
-      <div class="icon">🖼️</div>
-      <p><span id="imgUploadTrigger">이미지 파일 선택</span> 또는 여기에 끌어다 놓기</p>
-      <p style="font-size:0.8rem;color:#aaa;margin-top:6px;">여러 개 한번에 선택 가능 · PNG · JPG · GIF · WebP</p>
-    </div>
-    <input type="file" id="imgInput" accept="image/*" multiple/>
 
     <!-- 이미지 목록 -->
     <div id="imgList" class="img-list"></div>
     <div class="img-add-zone" id="imgAddZone" style="display:none;">➕ 이미지 추가</div>
-    <!-- 이미지 파일 정보 행 (하단) -->
     <div class="text-info-row" id="imgInfoRow">
       <span id="imgInfoCount" class="text-char-count"></span>
-      <button id="imgClearAllBtn" class="text-del-btn">🗑️ 전체 삭제</button>
+      <button id="imgClearAllBtn" class="text-del-btn">🗑️ 이미지 전체 삭제</button>
     </div>
 
-    <!-- 🔍 텍스트 인식 방식 (인라인) -->
-    <div id="imgOcrEngineRow" style="margin-top:14px; padding:14px 16px; background:#f9fafb; border-radius:12px; border:1px solid #e8eaff;">
+    <!-- 🔍 텍스트 인식 방식 (이미지가 있을 때만 보인다 — renderImgList 가 토글) -->
+    <div id="imgOcrEngineRow" style="display:none; margin-top:14px; padding:14px 16px; background:#f9fafb; border-radius:12px; border:1px solid #e8eaff;">
       <div style="font-size:0.83rem; font-weight:700; color:#555; margin-bottom:10px;">🔍 텍스트 인식 방식</div>
       <div class="engine-row">
         <div class="engine-opt selected" data-ocr="tesseract" id="ocrTesseractBtn">
@@ -434,6 +391,52 @@
         <button class="ocr-retry-btn" id="ocrRetryBtn">🔄 다시 인식</button>
       </div>
     </div>
+  </div>
+
+  <!-- ▶️ 유튜브 — 목록은 아래 공통 블록(listBlock)이 그린다 -->
+  <div class="tab-panel" id="tab-youtube">
+    <div class="text-list-hint" style="margin:0 0 4px;">▶️ 유튜브 요약이 여기 쌓입니다. 매일 저녁 자동으로 들어와요.</div>
+  </div>
+
+  <!-- 📝 블로그 — 글 넣는 도구는 이쪽에만 둔다 -->
+  <div class="tab-panel" id="tab-blog">
+    <!-- 🌐 URL에서 본문 가져오기 -->
+    <div style="display:flex; gap:6px; margin-bottom:12px;">
+      <input type="url" id="urlInput" placeholder="🌐 https://... 웹페이지 URL을 붙여넣어 본문 가져오기" style="flex:1; padding:9px 12px; border:1.5px solid #d5d9f5; border-radius:9px; font-size:0.85rem; font-family:inherit; background:#f9fafb; box-sizing:border-box;"/>
+      <button id="urlFetchBtn" class="text-add-btn" style="white-space:nowrap;">📥 가져오기</button>
+    </div>
+    <div style="font-size:0.85rem; color:#555; font-weight:600; margin-bottom:8px;">✏️ 텍스트 입력</div>
+    <textarea id="manualText" placeholder="여기에 텍스트를 입력하거나 붙여넣으세요..."></textarea>
+    <div class="text-info-row" id="textLoaded">
+      <span id="textMeta" class="text-char-count"></span>
+    </div>
+    <div class="text-add-row">
+      <input type="text" id="textItemTitle" placeholder="제목 (선택사항) — 비우면 본문 미리보기 사용"/>
+      <button id="textAddBtn" class="text-add-btn">➕ 목록에 추가</button>
+    </div>
+  </div>
+
+  <!-- 목록은 유튜브·블로그 탭이 함께 쓴다 (2026-08-02).
+       두 벌로 만들지 않는 이유: textList 배열 하나에 저장·동기화·삭제기록·오프라인저장이
+       전부 물려 있어서다. 화면에서만 현재 탭에 맞게 걸러 보여준다(renderTextList). -->
+  <div id="listBlock" style="display:none;">
+    <div id="textList" class="text-list"></div>
+    <div class="text-info-row" id="textListInfoRow">
+      <span id="textListCount" class="text-char-count"></span>
+      <button id="textListClearBtn" class="text-del-btn">🗑️ 목록 전체 삭제</button>
+    </div>
+    <!-- 오프라인 저장 (2026-08-02) — 집에서 미리 받아두면 밖에서 신호 없이 듣는다 -->
+    <div class="offline-row">
+      <span id="offlineStatus" class="text-char-count"></span>
+      <span style="display:flex; gap:4px; flex-shrink:0; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
+        <label title="새 글이 오면 알아서 차례대로 미리 받아 둡니다. 재생 중에는 멈췄다가 끝나면 이어서 받습니다." style="font-size:0.72rem; color:#8890cc; display:flex; align-items:center; gap:3px; cursor:pointer; white-space:nowrap;">
+          <input type="checkbox" id="offlineAuto" style="margin:0;"/>자동
+        </label>
+        <button id="offlineSaveBtn" class="text-del-btn">📥 오프라인 저장</button>
+        <button id="offlineClearBtn" class="text-del-btn">🧹 저장분 삭제</button>
+      </span>
+    </div>
+    <div class="text-list-hint" id="textListHint"></div>
   </div>
 
   <!-- 최근 목록 -->
@@ -682,12 +685,31 @@
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
   let extractedText = '', chunks = [], chunkIndex = 0, cumChars = [], totalChars = 1;
-  const tabTexts = { pdf: '', text: '', image: '' };
+  // pdf·image 는 문서 탭 안의 두 갈래 저장소다. 탭은 하나로 합쳤지만(2026-08-02)
+  // 추출 경로가 서로 달라 따로 담아 두고, 읽을 때 docText() 로 이어붙인다.
+  const tabTexts = { doc: '', youtube: '', blog: '', pdf: '', image: '' };
+  const docText = () => [(tabTexts.pdf || '').trim(), (tabTexts.image || '').trim()]
+    .filter(Boolean).join('\n\n');
   const tabState = {
-    pdf:    { chunkIndex: 0, progress: 0, playBtnText: '▶ 읽기 시작', statusText: '', chunks: [], cumChars: [], totalChars: 1, isResumable: false, displayVisible: false, displayHTML: '', highlightIdx: -1 },
-    text:   { chunkIndex: 0, progress: 0, playBtnText: '▶ 읽기 시작', statusText: '', chunks: [], cumChars: [], totalChars: 1, isResumable: false, displayVisible: false, displayHTML: '', highlightIdx: -1 },
-    image:  { chunkIndex: 0, progress: 0, playBtnText: '▶ 읽기 시작', statusText: '', chunks: [], cumChars: [], totalChars: 1, isResumable: false, displayVisible: false, displayHTML: '', highlightIdx: -1 },
+    doc:     { chunkIndex: 0, progress: 0, playBtnText: '▶ 읽기 시작', statusText: '', chunks: [], cumChars: [], totalChars: 1, isResumable: false, displayVisible: false, displayHTML: '', highlightIdx: -1 },
+    youtube: { chunkIndex: 0, progress: 0, playBtnText: '▶ 읽기 시작', statusText: '', chunks: [], cumChars: [], totalChars: 1, isResumable: false, displayVisible: false, displayHTML: '', highlightIdx: -1 },
+    blog:    { chunkIndex: 0, progress: 0, playBtnText: '▶ 읽기 시작', statusText: '', chunks: [], cumChars: [], totalChars: 1, isResumable: false, displayVisible: false, displayHTML: '', highlightIdx: -1 },
   };
+
+  // ── 목록 묶음 (2026-08-02) ───────────────────────
+  // 공부(유튜브)와 웹소설·블로그 글이 한 목록에 섞이면, 공부하려고 틀었는데 이어읽기로
+  // 소설이 나온다. 그래서 화면과 이어읽기를 묶음 단위로 가른다.
+  // 배열(textList)은 하나 그대로 둔다 — 저장·동기화·삭제기록·오프라인저장이 전부 여기 물려 있다.
+  const LIST_TABS = ['youtube', 'blog'];
+  const isListTab = (t) => LIST_TABS.indexOf(t) >= 0;
+  // 유튜브 요약만 yt: 를 쓴다. 토스테크(toss:)·웹소설(novel:)·손으로 넣은 글(id 없음)은 블로그.
+  const groupOf = (item) => String((item && item.id) || '').startsWith('yt:') ? 'youtube' : 'blog';
+  const groupList = (g) => textList.filter(it => groupOf(it) === g);
+  // 현재 보고 있는 묶음. 목록 탭이 아니면(문서·최근·설정) null.
+  function currentGroup() {
+    const t = activeTab();
+    return isListTab(t) ? t : null;
+  }
   let isPaused = false, isStopped = false;
   let currentEngine = 'browser', oaiVoice = 'marin', oaiApiKey = localStorage.getItem('oai_key') || '';
   let azApiKey = localStorage.getItem('azure_key') || '', azRegion = localStorage.getItem('azure_region') || 'koreacentral';
@@ -778,11 +800,14 @@
   function advanceToNextListItem() {
     if (!listPlayMode || !currentPlayingItem) return false;
     listPlayedItems.add(currentPlayingItem);
-    const nextItem = textList.find(it => !listPlayedItems.has(it));
+    // 이어읽기는 **같은 묶음 안에서만** 넘어간다. 공부하려고 튼 뒤 소설이 이어지지 않게. (2026-08-02)
+    const g = groupOf(currentPlayingItem);
+    const arr = groupList(g);
+    const nextItem = arr.find(it => !listPlayedItems.has(it));
     if (!nextItem) return false;
     currentPlayingItem = nextItem;
     extractedText = nextItem.text;
-    tabTexts.text = nextItem.text;
+    tabTexts[g] = nextItem.text;
     chunkIndex = 0;
     chunks = splitIntoSentences(extractedText);
     let acc = 0;
@@ -791,8 +816,7 @@
     setProgress(0);
     renderChunks(chunks);
     highlightTextListItem();
-    const idx = textList.indexOf(nextItem);
-    statusEl().textContent = `▶ 항목 ${idx + 1} 읽는 중...`;
+    statusEl().textContent = `▶ 항목 ${arr.indexOf(nextItem) + 1} 읽는 중...`;
     if (currentEngine === 'browser') speakBrowser(); else speakAPI();
     return true;
   }
@@ -806,14 +830,18 @@
     isStopped = false;  // 새 재생 시작
     isPaused = false;
     listPlayMode = true;
-    listPlayedItems = new Set(textList.slice(0, idx)); // 앞 항목들은 건너뜀
-    currentPlayingItem = textList[idx];
-    const item = currentPlayingItem;
+    // 건너뛸 앞 항목도 **같은 묶음 안에서만** 센다 (idx 는 배열 전체 기준).
+    const item = textList[idx];
+    const g = groupOf(item);
+    const arr = groupList(g);
+    const pos = arr.indexOf(item);
+    listPlayedItems = new Set(arr.slice(0, pos));
+    currentPlayingItem = item;
     const t = item.text;
     extractedText = t;
-    tabTexts.text = t;
+    tabTexts[g] = t;
     const firstTitle = item.title?.trim() || t.slice(0, 20);
-    const remain = textList.length - idx - 1;
+    const remain = arr.length - pos - 1;
     const title = `📚 ${firstTitle}${remain > 0 ? ` 외 ${remain}개` : ''}`;
     saveToHistory({ type: 'text', title, text: t, meta: `${t.length.toLocaleString()}자` });
     chunkIndex = 0;
@@ -824,7 +852,7 @@
     setProgress(0);
     renderChunks(chunks);
     highlightTextListItem();
-    statusEl().textContent = `▶ 항목 ${idx + 1} 읽는 중...`;
+    statusEl().textContent = `▶ 항목 ${pos + 1} 읽는 중...`;
     const st = tabState[activeTab()]; if (st) st.isResumable = false;
     if (currentEngine === 'browser') speakBrowser(); else speakAPI();
   }
@@ -921,10 +949,10 @@
   function loadFromHistory(item) {
     extractedText = item.text;
     if (item.type === 'image') {
-      switchTab('image');
+      switchTab('doc');
       imgFiles = [];
       tabTexts.image = item.text;
-      $('imgDropZone').style.display = 'none';
+      $('dropZone').style.display = 'none';
       $('imgAddZone').style.display = '';
       $('imgList').innerHTML = `<div class="img-list-item" style="opacity:0.65;">
         <div class="img-list-num">📂</div>
@@ -937,7 +965,7 @@
       $('ocrResultSection').classList.add('visible');
       setOcrViewMode(false);
     } else {
-      switchTab(item.type === 'pdf' ? 'pdf' : 'text');
+      switchTab(item.type === 'pdf' ? 'doc' : 'blog');
       if (item.type === 'text') {
         $('manualText').value = item.text;
         updateTextLoaded();
@@ -983,7 +1011,11 @@
     document.querySelector('.progress-wrap').style.display = isUtilTab ? 'none' : '';
     $('status').style.display = isUtilTab ? 'none' : '';
 
-    extractedText = tabTexts[tabName] || '';
+    // 목록 블록은 유튜브·블로그 탭이 함께 쓴다. 탭이 바뀌면 그 묶음만 다시 그린다.
+    $('listBlock').style.display = isListTab(tabName) ? '' : 'none';
+    if (isListTab(tabName)) { try { renderTextList(); } catch (e) {} }
+
+    extractedText = (tabName === 'doc') ? docText() : (tabTexts[tabName] || '');
     if (tabName !== 'history' && tabState[tabName]) {
       const st = tabState[tabName];
       chunkIndex  = st.chunkIndex;
@@ -1084,7 +1116,8 @@
                        || (typeof currentPlayingItem !== 'undefined' && currentPlayingItem)
                        || (document.getElementById('playBtn')?.textContent || '').indexOf('일시정지') >= 0
                        || (document.getElementById('playBtn')?.textContent || '').indexOf('계속 읽기') >= 0;
-        if (curTab !== 'text' && !isPlaying) switchTab('text');
+        // 낱개 주입은 id 가 없으므로 블로그 묶음으로 들어간다.
+        if (!isListTab(curTab) && !isPlaying) switchTab('blog');
       } catch (e) { /* 안전상 무시 */ }
       // 입력란(manualText)에 사용자가 작업 중인 글이 있을 수 있으므로
       // 덮어쓰지 않고 항상 목록(textList)에 새 항목으로 추가한다.
@@ -1357,7 +1390,7 @@
 
   // ── 이미지 탭 OCR 결과 ↔ 하이라이트 전환 ────────────
   function toggleImageOcrDisplay(showHighlight) {
-    if (activeTab() !== 'image') return;
+    if (activeTab() !== 'doc') return;
     if (showHighlight) {
       $('ocrResultSection').classList.remove('visible');
     }
@@ -1622,6 +1655,12 @@
   }
 
   // ── PDF ──────────────────────────────────────────
+  // 드롭존은 PDF·이미지가 함께 쓰는 하나뿐이라(2026-08-02 문서 탭 통합) 어느 한쪽만 보고
+  // 껐다 켜면 안 된다. 둘 다 비었을 때만 보여준다.
+  function refreshDropZone() {
+    $('dropZone').style.display = (pdfFiles.length || imgFiles.length) ? 'none' : '';
+  }
+
   function renderPdfList() {
     const list = $('pdfList');
     const addZone = $('pdfAddZone');
@@ -1630,10 +1669,10 @@
       list.innerHTML = '';
       addZone.style.display = 'none';
       infoRow.classList.remove('visible');
-      $('dropZone').style.display = '';
+      refreshDropZone();
       return;
     }
-    $('dropZone').style.display = 'none';
+    refreshDropZone();
     addZone.style.display = '';
     $('pdfInfoCount').textContent = `📎 ${pdfFiles.length}개 PDF`;
     infoRow.classList.add('visible');
@@ -1748,7 +1787,7 @@
   function updatePdfCombinedText() {
     const combined = pdfFiles.filter(f => f.status === 'done').map(f => f.text).join('\n\n');
     tabTexts.pdf = combined;
-    if (activeTab() === 'pdf') extractedText = combined;
+    if (activeTab() === 'doc') extractedText = docText();
   }
 
   async function addPdfs(files) {
@@ -1798,14 +1837,25 @@
     });
   }
 
+  // 문서 탭은 PDF 와 이미지를 한 드롭존에서 받는다 (2026-08-02 통합).
+  // 각 처리 함수는 "맞는 게 하나도 없으면" 오류를 띄우므로, 여기서 갈라 있는 쪽만 부른다.
+  function addMixedFiles(files) {
+    const arr = Array.from(files || []);
+    const pdfs = arr.filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+    const imgs = arr.filter(f => f.type.startsWith('image/'));
+    if (!pdfs.length && !imgs.length) { showError('PDF 또는 이미지 파일만 넣을 수 있어요.'); return; }
+    if (pdfs.length) addPdfs(pdfs);
+    if (imgs.length) addImages(imgs);
+  }
+
   $('uploadTrigger').addEventListener('click', () => $('fileInput').click());
   $('dropZone').addEventListener('click', e => { if (e.target !== $('dropZone') && e.target.tagName !== 'P') return; $('fileInput').click(); });
-  $('fileInput').addEventListener('change', e => { if (e.target.files.length) addPdfs(e.target.files); $('fileInput').value = ''; });
+  $('fileInput').addEventListener('change', e => { if (e.target.files.length) addMixedFiles(e.target.files); $('fileInput').value = ''; });
   $('dropZone').addEventListener('dragover', e => { e.preventDefault(); $('dropZone').classList.add('drag-over'); });
   $('dropZone').addEventListener('dragleave', () => $('dropZone').classList.remove('drag-over'));
   $('dropZone').addEventListener('drop', e => {
     e.preventDefault(); $('dropZone').classList.remove('drag-over');
-    addPdfs(e.dataTransfer.files);
+    addMixedFiles(e.dataTransfer.files);
   });
 
   // PDF 추가 영역
@@ -1842,10 +1892,12 @@
       list.innerHTML = '';
       addZone.style.display = 'none';
       infoRow.classList.remove('visible');
-      $('imgDropZone').style.display = '';
+      $('imgOcrEngineRow').style.display = 'none';   // 인식 방식은 이미지가 있을 때만
+      refreshDropZone();
       return;
     }
-    $('imgDropZone').style.display = 'none';
+    $('imgOcrEngineRow').style.display = '';
+    refreshDropZone();
     addZone.style.display = '';
     $('imgInfoCount').textContent = `📎 ${imgFiles.length}개 이미지`;
     infoRow.classList.add('visible');
@@ -1911,18 +1963,10 @@
     renderImgList();
   }
 
-  $('imgUploadTrigger').addEventListener('click', () => $('imgInput').click());
-  $('imgDropZone').addEventListener('click', e => {
-    if (!e.target.closest('span') && e.target !== $('imgDropZone') && e.target.tagName !== 'P' && e.target.className !== 'icon') return;
-    $('imgInput').click();
-  });
+  // 이미지 전용 드롭존은 문서 탭 통합으로 사라졌다 (2026-08-02).
+  // 위쪽 공용 드롭존이 addMixedFiles 로 PDF·이미지를 갈라 받고,
+  // 아래 "➕ 이미지 추가" 영역만 imgInput 을 직접 쓴다.
   $('imgInput').addEventListener('change', e => { if (e.target.files.length) addImages(e.target.files); $('imgInput').value = ''; });
-  $('imgDropZone').addEventListener('dragover', e => { e.preventDefault(); $('imgDropZone').classList.add('drag-over'); });
-  $('imgDropZone').addEventListener('dragleave', () => $('imgDropZone').classList.remove('drag-over'));
-  $('imgDropZone').addEventListener('drop', e => {
-    e.preventDefault(); $('imgDropZone').classList.remove('drag-over');
-    addImages(e.dataTransfer.files);
-  });
 
   // 이미지 추가 영역
   $('imgAddZone').addEventListener('click', () => $('imgInput').click());
@@ -1937,7 +1981,7 @@
   $('pdfClearAllBtn').addEventListener('click', () => {
     pdfFiles = [];
     tabTexts.pdf = '';
-    extractedText = '';
+    extractedText = docText();   // 이미지가 남아 있으면 그건 살린다 (문서 탭 통합)
     stopAll(); setProgress(0); statusEl().textContent = '';
     $('playBtn').textContent = '▶ 읽기 시작';
     showError('');
@@ -1949,7 +1993,7 @@
   $('imgClearAllBtn').addEventListener('click', () => {
     imgFiles = [];
     tabTexts.image = '';
-    extractedText = '';
+    extractedText = docText();   // PDF 가 남아 있으면 그건 살린다 (문서 탭 통합)
     $('ocrResultSection').classList.remove('visible');
     $('ocrText').value = '';
     stopAll(); setProgress(0); statusEl().textContent = '';
@@ -2164,30 +2208,39 @@
     // 그 시점엔 오프라인 저장 블록의 변수들이 아직 선언 전이라 건드리면 예외가 난다.
     // 여기서 예외가 새면 목록이 통째로 안 그려진다 — 초기 표시는 그 블록 끝에서 따로 한다.
     try { refreshOfflineStatus(); } catch (e) {}
+    // 목록 탭(유튜브·블로그)이 아닐 때는 그릴 화면이 없다. 저장만 하고 끝낸다.
+    const g = currentGroup();
+    if (!g) return;
     const list = $('textList');
-    if (!textList.length) {
+    // 화면에 그리는 건 이 묶음뿐이지만, 삭제·이동은 배열 전체 기준이어야 하므로
+    // data-idx 에는 **전역 인덱스**를, data-pos 에는 묶음 안 순번을 싣는다.
+    const arr = groupList(g);
+    if (!arr.length) {
       list.innerHTML = '';
       $('textListInfoRow').classList.remove('visible');
-      $('textListHint').textContent = '';
+      $('textListHint').textContent = g === 'youtube'
+        ? '아직 영상 요약이 없어요. 매일 저녁 자동으로 들어옵니다.'
+        : '아직 글이 없어요. 위에서 주소를 넣거나 직접 붙여넣어 추가할 수 있어요.';
       return;
     }
-    const totalChars = textList.reduce((s, x) => s + x.text.length, 0);
-    list.innerHTML = textList.map((item, i) => {
+    const totalChars = arr.reduce((s, x) => s + x.text.length, 0);
+    list.innerHTML = arr.map((item, pos) => {
+      const i = textList.indexOf(item);
       const title = item.title?.trim() || item.text.slice(0, 30).replace(/\n/g, ' ') + (item.text.length > 30 ? '…' : '');
       const preview = item.text.slice(0, 60).replace(/\n/g, ' ') + (item.text.length > 60 ? '…' : '');
       return `<div class="text-list-item" data-idx="${i}" title="더블클릭하면 이 항목부터 재생돼요">
-        <div class="text-list-num">${i + 1}</div>
+        <div class="text-list-num">${pos + 1}</div>
         <div class="text-list-info" data-action="expand">
           <div class="text-list-title">${escHtml(title)}</div>
           <div class="text-list-preview">${escHtml(item.text.length.toLocaleString())}자 · ${escHtml(preview)}</div>
         </div>
-        <button class="text-list-btn" data-action="up" data-idx="${i}" ${i === 0 ? 'disabled' : ''} title="위로">▲</button>
-        <button class="text-list-btn" data-action="down" data-idx="${i}" ${i === textList.length - 1 ? 'disabled' : ''} title="아래로">▼</button>
+        <button class="text-list-btn" data-action="up" data-pos="${pos}" ${pos === 0 ? 'disabled' : ''} title="위로">▲</button>
+        <button class="text-list-btn" data-action="down" data-pos="${pos}" ${pos === arr.length - 1 ? 'disabled' : ''} title="아래로">▼</button>
         <button class="text-list-btn text-list-del" data-action="del" data-idx="${i}" title="삭제">✕</button>
         <div class="text-list-full">${escHtml(item.text)}</div>
       </div>`;
     }).join('');
-    $('textListCount').textContent = `${textList.length}개 항목 · 총 ${totalChars.toLocaleString()}자`;
+    $('textListCount').textContent = `${arr.length}개 항목 · 총 ${totalChars.toLocaleString()}자`;
     $('textListInfoRow').classList.add('visible');
     $('textListHint').textContent = '💡 목록은 위에서부터 차례로 읽어요. 항목을 더블클릭하면 그 항목부터 재생돼요 (입력창 내용은 무시)';
     highlightTextListItem();
@@ -2201,15 +2254,22 @@
           item.classList.toggle('expanded');
           return;
         }
-        const idx = parseInt(el.dataset.idx);
         if (action === 'del') {
+          const idx = parseInt(el.dataset.idx);
+          if (isNaN(idx) || idx < 0) return;
           rememberBlogTombstone(textList[idx] && textList[idx].id);
           textList.splice(idx, 1);
           bumpInjectWatermark();
-        } else if (action === 'up' && idx > 0) {
-          [textList[idx - 1], textList[idx]] = [textList[idx], textList[idx - 1]];
-        } else if (action === 'down' && idx < textList.length - 1) {
-          [textList[idx], textList[idx + 1]] = [textList[idx + 1], textList[idx]];
+        } else {
+          // 위·아래 이동은 **같은 묶음 안의 이웃**과 바꾼다. 배열 인덱스로 바로 옮기면
+          // 사이에 낀 다른 묶음 항목과 자리를 바꿔 화면이 안 바뀐 것처럼 보인다.
+          const pos = parseInt(el.dataset.pos);
+          const cur = groupList(g);
+          const to = action === 'up' ? pos - 1 : pos + 1;
+          if (isNaN(pos) || to < 0 || to >= cur.length) return;
+          const a = textList.indexOf(cur[pos]), b = textList.indexOf(cur[to]);
+          if (a < 0 || b < 0) return;
+          [textList[a], textList[b]] = [textList[b], textList[a]];
         }
         renderTextList();
       });
@@ -2232,7 +2292,7 @@
     textList.push({ title, text });
     $('manualText').value = '';
     $('textItemTitle').value = '';
-    tabTexts.text = '';
+    tabTexts.blog = '';
     $('textLoaded').classList.remove('visible');
     renderTextList();
     $('manualText').focus();
@@ -2269,11 +2329,17 @@
     } catch (e) {}
   }
 
+  // 지금 보고 있는 묶음만 지운다. 유튜브 탭에서 눌렀는데 웹소설까지 사라지면 안 된다.
   $('textListClearBtn').addEventListener('click', () => {
-    if (!textList.length) return;
-    if (!confirm('목록을 모두 삭제할까요?')) return;
-    textList.forEach(it => rememberBlogTombstone(it && it.id));
-    textList.length = 0;
+    const g = currentGroup();
+    if (!g) return;
+    const arr = groupList(g);
+    if (!arr.length) return;
+    if (!confirm(`${g === 'youtube' ? '유튜브' : '블로그'} 목록을 모두 삭제할까요?`)) return;
+    arr.forEach(it => rememberBlogTombstone(it && it.id));
+    for (let i = textList.length - 1; i >= 0; i--) {
+      if (groupOf(textList[i]) === g) textList.splice(i, 1);
+    }
     bumpInjectWatermark();
     renderTextList();
   });
@@ -2291,7 +2357,8 @@
     $('urlInput').value = '';
     $('ocrText').value = '';
     // 텍스트/PDF/이미지 작업 상태
-    tabTexts.pdf = ''; tabTexts.text = ''; tabTexts.image = '';
+    tabTexts.pdf = ''; tabTexts.image = ''; tabTexts.doc = '';
+    tabTexts.youtube = ''; tabTexts.blog = '';
     pdfFiles = []; imgFiles = [];
     renderPdfList(); renderImgList();
     // 탭별 저장된 재생 상태
@@ -2357,45 +2424,50 @@
     }
 
     const tab = activeTab();
-    if (tab === 'text') {
+    if (isListTab(tab)) {
+      // 목록 재생은 **현재 묶음** 안에서만 이어진다 (유튜브 탭이면 영상 요약만).
+      const arr = groupList(tab);
       let t, title;
-      if (textList.length > 0) {
+      if (arr.length > 0) {
         listPlayMode = true;
         listPlayedItems = new Set();
-        currentPlayingItem = textList[0];
+        currentPlayingItem = arr[0];
         t = currentPlayingItem.text;
         const firstTitle = currentPlayingItem.title?.trim() || currentPlayingItem.text.slice(0, 20);
-        title = `📚 ${firstTitle}${textList.length > 1 ? ` 외 ${textList.length - 1}개` : ''}`;
-      } else {
+        title = `📚 ${firstTitle}${arr.length > 1 ? ` 외 ${arr.length - 1}개` : ''}`;
+      } else if (tab === 'blog') {
+        // 글 넣는 입력창은 블로그 탭에만 있다.
         listPlayMode = false;
         currentPlayingItem = null;
         t = $('manualText').value.trim();
         if (!t) { showError('텍스트를 입력하거나 목록에 추가해 주세요.'); return; }
         title = t.slice(0, 20) + (t.length > 20 ? '...' : '');
+      } else {
+        showError('아직 영상 요약이 없어요. 매일 저녁 자동으로 들어옵니다.');
+        return;
       }
       extractedText = t;
-      tabTexts.text = t;
+      tabTexts[tab] = t;
       saveToHistory({ type: 'text', title, text: t, meta: `${t.length.toLocaleString()}자` });
-    } else if (tab === 'image') {
-      let t = tabTexts.image.trim();
-      if (!t) {
-        if (!imgFiles.length) { showError('이미지 파일을 먼저 선택해 주세요.'); return; }
-        // 텍스트 미인식 상태 → 자동으로 OCR 실행 후 읽기
+    } else if (tab === 'doc') {
+      // PDF 와 이미지를 한 탭에서 다룬다. 이미지가 아직 인식 전이면 먼저 인식하고 이어붙인다.
+      if (imgFiles.length && !tabTexts.image.trim()) {
         $('playBtn').disabled = true;
         const ok = await runOCR();
         $('playBtn').disabled = false;
         if (!ok) return;
-        t = tabTexts.image.trim();
       }
+      const t = docText();
+      if (!t) { showError('PDF 나 이미지 파일을 먼저 올려 주세요.'); return; }
       extractedText = t;
+      tabTexts.doc = t;
     } else if (tab === 'history') {
       showError('목록에서 항목을 클릭해 불러온 뒤 읽기 시작을 눌러주세요.');
       return;
     } else if (tab === 'settings') {
-      showError('설정 탭에서는 읽기를 시작할 수 없어요. PDF · 텍스트 · 이미지 탭을 이용해 주세요.');
+      showError('설정 탭에서는 읽기를 시작할 수 없어요. 문서 · 유튜브 · 블로그 탭을 이용해 주세요.');
       return;
     } else if (!extractedText) {
-      if (tab === 'pdf')    showError('PDF 파일을 먼저 업로드해 주세요.');
       return;
     }
 
