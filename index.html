@@ -116,7 +116,9 @@
     .ocr-retry-btn:hover { background: #e0e8ff; }
 
     /* 텍스트 탭 */
-    textarea#manualText { width: 100%; height: 200px; padding: 14px; border: 1.5px solid #d5d9f5; border-radius: 12px; font-size: 0.92rem; line-height: 1.7; color: #333; resize: vertical; font-family: inherit; background: #f9fafb; }
+    /* 높이 200px → 90px (2026-08-02). 목록이 자동으로 채워지면서 직접 입력을 거의 안 쓰게 됐다.
+       resize: vertical 이라 필요할 때 모서리를 끌어 늘릴 수 있으므로 기본을 작게 둔다. */
+    textarea#manualText { width: 100%; height: 90px; padding: 14px; border: 1.5px solid #d5d9f5; border-radius: 12px; font-size: 0.92rem; line-height: 1.7; color: #333; resize: vertical; font-family: inherit; background: #f9fafb; }
     textarea#manualText:focus { outline: none; border-color: #3b4cca; background: white; }
     .text-info-row { display: none; align-items: center; justify-content: space-between; margin-top: 8px; padding: 2px 4px; }
     .text-info-row.visible { display: flex; }
