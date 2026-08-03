@@ -429,10 +429,10 @@
     <div class="offline-row">
       <span id="offlineStatus" class="text-char-count"></span>
       <span style="display:flex; gap:4px; flex-shrink:0; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
-        <label title="새 영상 요약이 오면 알아서 차례대로 미리 받아 둡니다. 재생 중에는 멈췄다가 끝나면 이어서 받습니다. (블로그 글은 미리 받지 않습니다)" style="font-size:0.72rem; color:#8890cc; display:flex; align-items:center; gap:3px; cursor:pointer; white-space:nowrap;">
+        <label title="새 영상 요약이 오면 알아서 차례대로 미리 받아 둡니다. 재생 중에는 멈췄다가 끝나면 이어서 받습니다. (알아서 받을 때는 블로그 글을 건너뜁니다)" style="font-size:0.72rem; color:#8890cc; display:flex; align-items:center; gap:3px; cursor:pointer; white-space:nowrap;">
           <input type="checkbox" id="offlineAuto" style="margin:0;"/>자동
         </label>
-        <button id="offlineSaveBtn" class="text-del-btn" title="유튜브 요약만 미리 받습니다. 블로그 글은 들으면서 저장돼요.">📥 오프라인 저장</button>
+        <button id="offlineSaveBtn" class="text-del-btn" title="누르면 블로그 글까지 목록 전체를 받습니다. (알아서 받을 때는 유튜브 요약만)">📥 오프라인 저장</button>
         <button id="offlineClearBtn" class="text-del-btn">🧹 저장분 삭제</button>
       </span>
     </div>
@@ -2817,12 +2817,14 @@
     } catch (e) { return false; }
   }
 
-  // 미리 받을 대상은 **유튜브 묶음뿐**이다. (2026-08-02 사용자 지시 "블로그는 미리 내려받지 마")
-  // 웹소설이 매일 두 편씩 쌓이고 자동으로 지워지지도 않아, 다 듣지 않을 글까지 음성을 미리
-  // 만들면 요청과 비용이 계속 늘어난다.
-  // ⚠️ "들으면서 저장"(rememberClip)은 추가 요청이 0이라 블로그도 그대로 쌓인다 — 그것까지
-  //    막는 게 아니다. 그래서 **보관 대상(cleanupOrphans 의 keep)은 목록 전체**여야 한다.
-  //    여기 대상만 좁히고 보관 기준까지 좁히면 들으며 저장한 블로그 음성이 전부 지워진다.
+  // **알아서 받을 때**의 대상은 유튜브 묶음뿐이다. (2026-08-02 "블로그는 미리 내려받지 마")
+  // 웹소설이 쌓이고 자동으로 지워지지도 않아, 다 듣지 않을 글까지 음성을 미리 만들면
+  // 요청과 비용이 계속 늘어난다.
+  // 단, **버튼으로 직접 시작하면 목록 전체를 받는다** (2026-08-03 "수동으로는 가능하게").
+  // 넓이가 셋 다 다르다 — 헷갈리기 쉬우니 고칠 때 같이 볼 것:
+  //   자동 받기 = 유튜브 / 수동 받기 = 목록 전체 / 보관(cleanupOrphans·정리) = 목록 전체
+  // ⚠️ "들으면서 저장"(rememberClip)은 추가 요청이 0이라 블로그도 그대로 쌓인다.
+  //    그래서 보관 기준을 자동 받기 대상으로 좁히면 들으며 저장한 블로그 음성이 전부 지워진다.
   const prefetchItems = () => textList.filter(it => groupOf(it) === 'youtube');
 
   async function refreshOfflineStatus(msg) {
@@ -2924,9 +2926,13 @@
     }
     if (!textList.length) { refreshOfflineStatus('목록이 비어 있어요.'); return; }
 
-    // 미리 받는 건 유튜브 묶음뿐이다 (prefetchItems 주석 참고).
-    const targets = prefetchItems();
-    if (!targets.length) { refreshOfflineStatus('미리 받을 영상 요약이 없어요. (블로그 글은 미리 받지 않습니다)'); return; }
+    // 자동은 유튜브 묶음만, **버튼으로 직접 시작하면 목록 전체**를 받는다. (2026-08-03)
+    // 알아서 받을 땐 안 들을 글까지 만들지 않되, 사용자가 "이번엔 받아둬" 하면 다 받는다.
+    const targets = auto ? prefetchItems() : textList.slice();
+    if (!targets.length) {
+      refreshOfflineStatus(auto ? '미리 받을 영상 요약이 없어요.' : '목록이 비어 있어요.');
+      return;
+    }
 
     const needed = [];
     targets.forEach(it => splitIntoSentences(it.text).forEach(c => needed.push(c)));
