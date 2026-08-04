@@ -2345,47 +2345,69 @@
     renderTextList();
   });
 
+  // 초기화는 지금 보고 있는 탭만 건드린다 (2026-08-04).
+  // 예전엔 textList.length = 0 으로 목록 전체를 비워서, 유튜브 탭에서 눌렀는데
+  // 블로그 묶음(웹소설·토스테크·러닝크루)까지 같이 사라졌다.
   $('resetAllBtn').addEventListener('click', () => {
-    if (!confirm('현재 화면을 모두 초기화할까요?\n\n입력란·진행률·읽기 박스·PDF/이미지 미리보기·목록이 비워집니다.\n(최근 기록·음성 설정은 유지됩니다)')) return;
+    const tab = activeTab();               // 'doc' | 'youtube' | 'blog'
+    if (tab === 'history' || tab === 'settings') return;   // 그 탭들엔 버튼이 안 보이지만 방어용
+
+    // 확인창은 두지 않는다 (2026-08-04 사용자 지시 "묻지 말고 바로") — 안내는 아래 상태줄로만.
+    const label = tab === 'doc' ? '문서' : tab === 'youtube' ? '유튜브' : '블로그';
     stopAll();
-    // 목록 비우기 (디스크 _inject.js 재주입 방지 포함)
-    textList.length = 0;
-    bumpInjectWatermark();
-    renderTextList();
-    // 입력란들
-    $('manualText').value = '';
-    $('textItemTitle').value = '';
-    $('urlInput').value = '';
-    $('ocrText').value = '';
-    // 텍스트/PDF/이미지 작업 상태
-    tabTexts.pdf = ''; tabTexts.image = ''; tabTexts.doc = '';
-    tabTexts.youtube = ''; tabTexts.blog = '';
-    pdfFiles = []; imgFiles = [];
-    renderPdfList(); renderImgList();
-    // 탭별 저장된 재생 상태
-    Object.keys(tabState).forEach(k => {
-      tabState[k].chunkIndex = 0;
-      tabState[k].progress = 0;
-      tabState[k].playBtnText = '▶ 읽기 시작';
-      tabState[k].statusText = '';
-      tabState[k].chunks = [];
-      tabState[k].cumChars = [];
-      tabState[k].totalChars = 1;
-      tabState[k].isResumable = false;
-      tabState[k].displayVisible = false;
-      tabState[k].displayHTML = '';
-      tabState[k].highlightIdx = -1;
-    });
-    // 재생 관련 변수
+
+    if (tab === 'doc') {
+      tabTexts.pdf = ''; tabTexts.image = ''; tabTexts.doc = '';
+      pdfFiles = []; imgFiles = [];
+      renderPdfList(); renderImgList();
+      $('ocrText').value = '';
+      $('ocrResultSection').classList.remove('visible');
+    } else {
+      // 이 묶음의 목록만 지운다 — 목록 전체 삭제 버튼과 같은 규칙.
+      // yt: 는 상위 목록(나중에 볼 동영상)이 진실이라 기록 없이 지우고(내일 동기화로 되살아남),
+      // 블로그 쪽은 묘비를 남겨 원격 목록으로 되살아나지 않게 한다.
+      groupList(tab).forEach(it => rememberBlogTombstone(it && it.id));
+      for (let i = textList.length - 1; i >= 0; i--) {
+        if (groupOf(textList[i]) === tab) textList.splice(i, 1);
+      }
+      bumpInjectWatermark();   // 디스크 _inject.js 재주입 방지
+      renderTextList();
+      tabTexts[tab] = '';
+      if (tab === 'blog') {
+        $('manualText').value = '';
+        $('textItemTitle').value = '';
+        $('urlInput').value = '';
+      }
+    }
+
+    // 이 탭의 저장된 재생 상태만 초기화 (다른 탭의 이어 읽기 위치는 보존)
+    const st = tabState[tab];
+    if (st) {
+      st.chunkIndex = 0;
+      st.progress = 0;
+      st.playBtnText = '▶ 읽기 시작';
+      st.statusText = '';
+      st.chunks = [];
+      st.cumChars = [];
+      st.totalChars = 1;
+      st.isResumable = false;
+      st.displayVisible = false;
+      st.displayHTML = '';
+      st.highlightIdx = -1;
+    }
+
+    // 전역 재생 변수·화면은 지금 이 탭 것을 비추고 있으므로 같이 비운다
     extractedText = ''; chunks = []; chunkIndex = 0; cumChars = []; totalChars = 1;
-    // 화면 요소
     $('textLoaded').classList.remove('visible');
     $('textDisplay').classList.remove('visible');
     $('textDisplay').innerHTML = '';
-    $('ocrResultSection').classList.remove('visible');
     $('playBtn').textContent = '▶ 읽기 시작';
     setProgress(0);
-    statusEl().textContent = '🧹 초기화되었습니다';
+    // 확인창이 없으므로 결과를 정직하게 알려준다 — 묶음마다 되살아나는 규칙이 다르다.
+    const note = tab === 'youtube' ? '나중에 볼 동영상에 남아 있는 건 다시 들어와요'
+               : tab === 'blog'    ? '지운 글은 되돌아오지 않아요'
+               : '다른 탭은 그대로예요';
+    statusEl().textContent = '🧹 ' + label + ' 탭만 초기화했습니다 — ' + note;
     showError('');
   });
 
