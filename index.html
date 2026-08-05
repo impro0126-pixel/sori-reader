@@ -611,8 +611,16 @@
           <input type="password" id="remoteListUrl" placeholder="비밀 목록 주소"/>
           <button id="remoteListSaveBtn" style="background:#3b4cca; color:white; border:none; border-radius:8px; padding:7px 14px; font-size:0.82rem; font-weight:700; cursor:pointer; white-space:nowrap; flex-shrink:0;">저장</button>
         </div>
+        <!-- 🔐 지움 동기화 토큰 (2026-08-05)
+             이 기기에서 지운 글을 다른 기기에서도 없애려면 필요하다. 없으면 예전처럼
+             이 기기 안에서만 지워진다(다른 기기엔 그대로 남음). -->
+        <div class="apikey-row" style="margin-top:8px;">
+          <input type="password" id="gistToken" placeholder="지움 동기화 토큰 (선택)"/>
+          <button id="gistTokenSaveBtn" style="background:#3b4cca; color:white; border:none; border-radius:8px; padding:7px 14px; font-size:0.82rem; font-weight:700; cursor:pointer; white-space:nowrap; flex-shrink:0;">저장</button>
+        </div>
         <div style="font-size:0.76rem; color:#8890cc; margin-top:8px; line-height:1.5;">
-          맥이 꺼져 있거나 잠들어 있어도 이 주소에서 목록을 받아옵니다. 비워두면 맥에 연결됐을 때만 목록이 갱신됩니다.
+          맥이 꺼져 있거나 잠들어 있어도 이 주소에서 목록을 받아옵니다. 비워두면 맥에 연결됐을 때만 목록이 갱신됩니다.<br>
+          토큰까지 넣으면 <b>여기서 지운 블로그 글이 다른 기기에서도 다음 날 사라집니다.</b> 비워두면 이 기기에서만 지워집니다.
         </div>
         <div style="display:flex; justify-content:flex-end; margin-top:auto; padding-top:0; min-height:1.2em;">
           <div class="api-status" id="remoteListStatus" style="margin-top:0;"></div>
@@ -1327,6 +1335,89 @@
     window._soriTestRemoteList = fetchRemoteList;
     window._soriPollRemote = pollRemote;
 
+    // ── 지운 기록을 다른 기기에도 알린다 (2026-08-05) ──────────────
+    // 왜: 묘비(sori_blog_tombstone)는 그 기기 브라우저 안에만 있어서, 폰에서 지운 글이
+    //     맥에는 그대로 남았다. 앱→맥으로 되돌려 쓸 통로가 없었기 때문이다.
+    //     이제 지운 id 를 비밀 Gist 에 적어두면, 다음 자동화 실행 때
+    //     소리내어읽기/apply_tombstone.py 가 목록 원본에서 그 글을 아예 빼버린다.
+    //     그러면 목록에서 사라졌으므로 두 기기 모두에서 정리된다.
+    // 토큰이 없으면 조용히 넘어간다 — 예전처럼 이 기기에서만 지워진 상태가 된다.
+    const GIST_TOKEN_KEY = 'sori_gist_token';
+    const TOMB_FILE = 'sori_tombstone.json';
+
+    // 목록 주소에서 Gist id(긴 16진수)만 뽑는다. 주소 자체를 코드에 두지 않기 위해서다
+    // (공개본에 비밀 주소가 섞여 들어가는 걸 publish_app.sh 가 막고 있기도 하다).
+    function gistIdFromRemote() {
+      let u = '';
+      try { u = localStorage.getItem(REMOTE_URL_KEY) || ''; } catch (e) {}
+      const m = u.match(/\/([0-9a-f]{20,})(?:\/|$)/i);
+      return m ? m[1] : '';
+    }
+    function gistToken() {
+      try { return (localStorage.getItem(GIST_TOKEN_KEY) || '').trim(); } catch (e) { return ''; }
+    }
+    function gistHeaders(token) {
+      return { 'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json' };
+    }
+
+    let tombQueue = [];
+    let tombTimer = null;
+
+    // 목록 전체 삭제처럼 한꺼번에 여러 건이 들어올 때 매번 올리면 서로 덮어쓴다.
+    // 잠깐 모았다가 한 번에 올린다.
+    function pushTombstoneRemote(id) {
+      if (!id) return;
+      if (tombQueue.indexOf(id) < 0) tombQueue.push(id);
+      clearTimeout(tombTimer);
+      tombTimer = setTimeout(flushTombstones, 800);
+    }
+
+    function flushTombstones() {
+      if (!tombQueue.length) return;
+      const token = gistToken();
+      const gid = gistIdFromRemote();
+      if (!token || !gid) return;   // 설정 전 — 이 기기 안에서만 지운 것으로 남는다
+      const ids = tombQueue.slice();
+      const api = 'https://api.github.com/gists/' + gid;
+      // 남의 기록을 지우지 않으려고 먼저 읽어서 합친다 (두 기기가 각각 지울 수 있다).
+      fetch(api, { headers: gistHeaders(token), cache: 'no-store' })
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function (d) {
+          let prev = [];
+          try {
+            const f = d.files && d.files[TOMB_FILE];
+            if (f && f.content) prev = JSON.parse(f.content).ids || [];
+          } catch (e) {}
+          const merged = prev.slice();
+          ids.forEach(function (id) { if (merged.indexOf(id) < 0) merged.push(id); });
+          if (merged.length === prev.length) { tombQueue = []; return null; }   // 이미 적혀 있음
+          const body = { files: {} };
+          body.files[TOMB_FILE] = {
+            content: JSON.stringify({ ts: Date.now(), ids: merged.slice(-200) })
+          };
+          return fetch(api, {
+            method: 'PATCH', headers: gistHeaders(token), body: JSON.stringify(body)
+          }).then(function (r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            tombQueue = [];
+          });
+        })
+        .catch(function (err) {
+          // 큐를 비우지 않는다 — 다음에 뭘 지울 때 같이 다시 올라간다.
+          console.warn('지움 기록 올리기 실패', err);
+        });
+    }
+    window._soriPushTombstone = pushTombstoneRemote;
+    window._soriTestGistToken = function (token, gid) {
+      return fetch('https://api.github.com/gists/' + gid, {
+        headers: gistHeaders(token), cache: 'no-store'
+      }).then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      });
+    };
+    window._soriGistIdFromRemote = gistIdFromRemote;
+
     // 링크 한 번으로 설정하기 (2026-08-02).
     // 주소 끝에 #list=<인코딩한 목록주소> 를 붙여 열면 저장하고 곧바로 받아온다.
     // 폰에서 긴 비밀 주소를 손으로 넣는 게 너무 번거로워서 만든 통로다.
@@ -1595,6 +1686,8 @@
   try {
     const _ru = localStorage.getItem('sori_remote_list_url') || '';
     if (_ru) $('remoteListUrl').value = _ru;
+    const _gt = localStorage.getItem('sori_gist_token') || '';
+    if (_gt) $('gistToken').value = _gt;
   } catch (e) {}
 
   // ── 브라우저 목소리 ──────────────────────────────
@@ -2328,6 +2421,9 @@
       if (t.indexOf(id) < 0) t.push(id);
       localStorage.setItem('sori_blog_tombstone', JSON.stringify(t.slice(-50)));
     } catch (e) {}
+    // 다른 기기에도 알린다 (2026-08-05). 토큰이 없으면 아무 일도 안 일어난다 —
+    // 이 기기 안에서만 지워진 예전 동작 그대로다.
+    try { if (window._soriPushTombstone) window._soriPushTombstone(id); } catch (e) {}
   }
 
   // 지금 보고 있는 묶음만 지운다. 유튜브 탭에서 눌렀는데 웹소설까지 사라지면 안 된다.
@@ -3339,6 +3435,50 @@
     }).catch(err => {
       setStatus('err', '❌ 읽지 못했습니다 (' + ((err && err.message) || '연결 실패') + ')');
       flash('❌', '#c0392b', 2500);
+    });
+  });
+
+  // 🔐 지움 동기화 토큰 저장 (2026-08-05)
+  // 목록 주소와 같은 칸에 두는 이유: 둘 다 같은 Gist 를 가리키고, 주소가 없으면
+  // 토큰만 있어도 쓸 데가 없다. 저장할 때 실제로 그 Gist 를 읽어 권한을 확인한다.
+  $('gistTokenSaveBtn').addEventListener('click', () => {
+    const btn = $('gistTokenSaveBtn');
+    const token = $('gistToken').value.trim();
+    const setStatus = (type, msg) => {
+      const el = $('remoteListStatus');
+      el.className = 'api-status ' + type;
+      el.textContent = msg;
+      el.style.visibility = 'visible';
+    };
+    const flash = (label, color, ms) => {
+      btn.textContent = label; btn.style.background = color;
+      clearTimeout(btn._t);
+      btn._t = setTimeout(() => { btn.textContent = '저장'; btn.style.background = '#3b4cca'; }, ms);
+    };
+
+    if (!token) {
+      try { localStorage.removeItem('sori_gist_token'); } catch (e) {}
+      setStatus('ok', '토큰을 비웠습니다 — 지운 글은 이 기기에서만 사라집니다');
+      flash('✓', '#27ae60', 2000);
+      return;
+    }
+    const gid = window._soriGistIdFromRemote ? window._soriGistIdFromRemote() : '';
+    if (!gid) {
+      setStatus('err', '❌ 목록 주소를 먼저 저장해 주세요 (주소에서 목록 위치를 읽습니다)');
+      flash('❌', '#c0392b', 2500);
+      return;
+    }
+
+    setStatus('', '확인 중…');
+    btn.textContent = '확인 중';
+    window._soriTestGistToken(token, gid).then(() => {
+      try { localStorage.setItem('sori_gist_token', token); } catch (e) {}
+      setStatus('ok', '✅ 저장했습니다 — 이제 지운 글이 다른 기기에서도 사라집니다');
+      flash('✓', '#27ae60', 2000);
+    }).catch(err => {
+      const m = (err && err.message) || '연결 실패';
+      setStatus('err', '❌ 확인 실패 (' + m + ')' + (/40[13]/.test(m) ? ' — gist 권한이 있는 토큰인지 보세요' : ''));
+      flash('❌', '#c0392b', 3000);
     });
   });
 
