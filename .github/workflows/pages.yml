@@ -1,0 +1,34 @@
+# 공개본 배포 (2026-08-06)
+# 예전엔 GitHub 이 알아서 돌려주는 legacy 빌드에 맡겼는데, 그게 "Page build failed." 한 줄만
+# 남기고 네 번 연속 실패했다. 워크플로우로 돌리면 실패해도 단계별 로그가 남아 원인을 볼 수 있다.
+# 올리는 쪽(publish_app.sh)은 그대로다 — index.html 을 main 에 push 하면 이게 받아 배포한다.
+name: Deploy to Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+      - id: deployment
+        uses: actions/deploy-pages@v4
