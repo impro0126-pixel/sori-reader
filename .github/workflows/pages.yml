@@ -32,3 +32,7 @@ jobs:
           path: '.'
       - id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          # 기본 10분으로는 모자랐다 (2026-08-06). GitHub 배포 처리가 queued/in_progress 를
+          # 오가며 안 끝나 액션이 스스로 중단했다. 우리 파일은 그 앞 단계에서 이미 통과한다.
+          timeout: 1800000
