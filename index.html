@@ -37,6 +37,12 @@
     .tabs { display: flex; gap: 6px; margin-bottom: 20px; background: #f0f2ff; padding: 5px; border-radius: 12px; flex-shrink: 0; }
     .tab-btn { flex: 1; padding: 10px; border: none; border-radius: 9px; background: transparent; color: #666; font-size: 0.88rem; font-weight: 500; cursor: pointer; transition: all 0.18s; white-space: nowrap; }
     .tab-btn.active { background: white; color: #3b4cca; font-weight: 700; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    /* 블로그 잔묶음 칩 (2026-08-06) — 상단 탭보다 한 단 작게, 줄바꿈 허용 */
+    .sub-chip-row { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 9px; }
+    .sub-chip { padding: 5px 11px; border: 1.5px solid #dde1f7; border-radius: 999px; background: #f7f8fd; color: #6b73a8; font-size: 0.76rem; font-weight: 600; font-family: inherit; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+    .sub-chip:hover { border-color: #b9c0ee; }
+    .sub-chip.active { background: #3b4cca; border-color: #3b4cca; color: white; }
+    .sub-chip .sub-chip-n { opacity: 0.65; font-weight: 500; margin-left: 3px; }
     .tab-panel { display: none; }
     .tab-panel.active { display: block; flex-shrink: 0; }
 
@@ -420,6 +426,8 @@
        두 벌로 만들지 않는 이유: textList 배열 하나에 저장·동기화·삭제기록·오프라인저장이
        전부 물려 있어서다. 화면에서만 현재 탭에 맞게 걸러 보여준다(renderTextList). -->
   <div id="listBlock" style="display:none;">
+    <!-- 블로그 잔묶음 칩 (2026-08-06) — 블로그 탭에서만 보인다. 유튜브 탭에선 숨김. -->
+    <div id="subChips" class="sub-chip-row" style="display:none;"></div>
     <div id="textList" class="text-list"></div>
     <div class="text-info-row" id="textListInfoRow">
       <span id="textListCount" class="text-char-count"></span>
@@ -714,11 +722,44 @@
   const groupOf = (item) => String((item && item.id) || '').startsWith('yt:') ? 'youtube' : 'blog';
   const groupList = (g) => textList.filter(it => groupOf(it) === g);
 
+  // ── 블로그 묶음 안의 잔묶음 (2026-08-06) ─────────
+  // 블로그 탭 하나에 웹소설·토스테크·HR 이 뒤섞여 "뭐가 뭔지" 구분이 안 됐다.
+  // 상단 탭을 늘리는 대신(아이폰에서 이미 0.74rem 까지 줄었다) 목록 위에 칩 줄을 둔다.
+  // 판별 기준은 자동화가 붙이는 id 접두사 하나뿐이다 — 제목·본문을 넘겨짚지 않는다.
+  const BLOG_SUBS = [
+    { key: 'all',   label: '전체',      hint: '아직 글이 없어요. 위에서 주소를 넣거나 직접 붙여넣어 추가할 수 있어요.' },
+    { key: 'novel', label: '📖 웹소설',  hint: '아직 연재분이 없어요. 매일 저녁 자동으로 들어옵니다.' },
+    { key: 'toss',  label: '🛠 토스테크', hint: '아직 토스테크 글이 없어요. 매일 저녁 자동으로 들어옵니다.' },
+    { key: 'hr',    label: '👥 HR',     hint: '아직 러닝크루 글이 없어요. 새 글이 올라오면 들어옵니다.' },
+    { key: 'etc',   label: '✏️ 직접',    hint: '직접 넣은 글이 없어요. 위 입력창으로 추가할 수 있어요.' },
+  ];
+  const subOf = (item) => {
+    const id = String((item && item.id) || '');
+    if (id.startsWith('novel:'))  return 'novel';   // 웹소설 (우당탕탕 커리어 · 테헤란의 밤)
+    if (id.startsWith('toss:'))   return 'toss';    // 토스테크
+    if (id.startsWith('follow:')) return 'hr';      // 러닝크루 등 follow 모드 블로그
+    return 'etc';                                    // id 없는 것 = 손으로 넣은 글
+  };
+  const isSubKey = (k) => BLOG_SUBS.some(s => s.key === k);
+  let blogSub = localStorage.getItem('sori_blog_sub') || 'all';
+  if (!isSubKey(blogSub)) blogSub = 'all';
+  const filterSub = (arr, sub) => (!sub || sub === 'all') ? arr : arr.filter(it => subOf(it) === sub);
+
   // 현재 보고 있는 묶음. 목록 탭이 아니면(문서·최근·설정) null.
   function currentGroup() {
     const t = activeTab();
     return isListTab(t) ? t : null;
   }
+  // 지금 화면에 보이는 목록. 유튜브 탭은 묶음 그대로, 블로그 탭은 고른 칩까지 적용한다.
+  // 삭제·이동·재생 범위가 전부 이걸 따른다 — "보고 있는 것만 건드린다"가 이 앱의 규칙.
+  function viewList() {
+    const g = currentGroup();
+    if (!g) return [];
+    return g === 'blog' ? filterSub(groupList(g), blogSub) : groupList(g);
+  }
+  // 재생 시작 때 굳혀 둔 범위(listPlayScope)로 목록을 다시 만든다.
+  // 화면(viewList)과 달리 지금 보고 있는 탭·칩에 흔들리지 않는다.
+  const playScopeList = (scope) => filterSub(groupList(scope.g), scope.sub);
   let isPaused = false, isStopped = false;
   let currentEngine = 'browser', oaiVoice = 'marin', oaiApiKey = localStorage.getItem('oai_key') || '';
   let azApiKey = localStorage.getItem('azure_key') || '', azRegion = localStorage.getItem('azure_region') || 'koreacentral';
@@ -810,8 +851,9 @@
     if (!listPlayMode || !currentPlayingItem) return false;
     listPlayedItems.add(currentPlayingItem);
     // 이어읽기는 **같은 묶음 안에서만** 넘어간다. 공부하려고 튼 뒤 소설이 이어지지 않게. (2026-08-02)
+    // 블로그 안에서도 재생을 시작할 때 고른 칩 범위를 지킨다 (2026-08-06).
     const g = groupOf(currentPlayingItem);
-    const arr = groupList(g);
+    const arr = listPlayScope ? playScopeList(listPlayScope) : groupList(g);
     const nextItem = arr.find(it => !listPlayedItems.has(it));
     if (!nextItem) return false;
     currentPlayingItem = nextItem;
@@ -842,7 +884,8 @@
     // 건너뛸 앞 항목도 **같은 묶음 안에서만** 센다 (idx 는 배열 전체 기준).
     const item = textList[idx];
     const g = groupOf(item);
-    const arr = groupList(g);
+    listPlayScope = { g, sub: g === 'blog' ? blogSub : 'all' };
+    const arr = playScopeList(listPlayScope);
     const pos = arr.indexOf(item);
     listPlayedItems = new Set(arr.slice(0, pos));
     currentPlayingItem = item;
@@ -2288,12 +2331,36 @@
   // 단, 비어있을 때 무의미한 saveTextList([]) 호출은 피하기 위해 가드.
   let listPlayMode = false;
   let listPlayedItems = new Set(); // 이미 재생한 항목 객체들
+  // 이어읽기가 돌 범위. 재생을 **시작할 때** 굳혀 둔다 (2026-08-06) —
+  // 재생 도중 칩을 눌러 화면만 바꿨는데 다음 글이 딴 묶음으로 튀면 안 되기 때문.
+  let listPlayScope = null;        // { g: 'youtube'|'blog', sub: 'all'|'novel'|… }
   let currentPlayingItem = null; // 현재 재생 중인 항목 객체
   // 주의: 초기 렌더는 반드시 위 let 선언들(특히 currentPlayingItem) 뒤에서 호출한다.
   // renderTextList → highlightTextListItem이 currentPlayingItem을 읽기 때문에,
   // 선언 전에 부르면 TDZ ReferenceError로 렌더가 리스너 부착 직전에 중단되어
   // 항목은 보이지만 ✕/▲/▼ 클릭이 먹지 않는 버그가 난다.
   if (textList.length > 0) { try { renderTextList(); } catch (e) { console.warn('init render failed', e); } }
+
+  // 블로그 잔묶음 칩을 그린다 (2026-08-06). 유튜브 탭에서는 줄 자체를 숨긴다.
+  // 개수가 0인 묶음도 남겨 둔다 — 사라졌다 나타나면 누를 자리가 매번 달라진다.
+  function renderSubChips(g) {
+    const row = $('subChips');
+    if (!row) return;
+    if (g !== 'blog') { row.style.display = 'none'; return; }
+    const arr = groupList('blog');
+    row.style.display = '';
+    row.innerHTML = BLOG_SUBS.map(s => {
+      const n = filterSub(arr, s.key).length;
+      return `<button class="sub-chip${s.key === blogSub ? ' active' : ''}" data-sub="${s.key}">${escHtml(s.label)}<span class="sub-chip-n">${n}</span></button>`;
+    }).join('');
+    row.querySelectorAll('.sub-chip').forEach(btn => btn.addEventListener('click', () => {
+      const k = btn.dataset.sub;
+      if (!isSubKey(k) || k === blogSub) return;
+      blogSub = k;
+      try { localStorage.setItem('sori_blog_sub', k); } catch (e) {}
+      renderTextList();
+    }));
+  }
 
   function renderTextList() {
     saveTextList();
@@ -2305,16 +2372,17 @@
     // 목록 탭(유튜브·블로그)이 아닐 때는 그릴 화면이 없다. 저장만 하고 끝낸다.
     const g = currentGroup();
     if (!g) return;
+    renderSubChips(g);
     const list = $('textList');
     // 화면에 그리는 건 이 묶음뿐이지만, 삭제·이동은 배열 전체 기준이어야 하므로
     // data-idx 에는 **전역 인덱스**를, data-pos 에는 묶음 안 순번을 싣는다.
-    const arr = groupList(g);
+    const arr = viewList();
     if (!arr.length) {
       list.innerHTML = '';
       $('textListInfoRow').classList.remove('visible');
       $('textListHint').textContent = g === 'youtube'
         ? '아직 영상 요약이 없어요. 저녁마다 자동으로 들어옵니다.'
-        : '아직 글이 없어요. 위에서 주소를 넣거나 직접 붙여넣어 추가할 수 있어요.';
+        : (BLOG_SUBS.find(s => s.key === blogSub) || BLOG_SUBS[0]).hint;
       return;
     }
     const totalChars = arr.reduce((s, x) => s + x.text.length, 0);
@@ -2358,7 +2426,7 @@
           // 위·아래 이동은 **같은 묶음 안의 이웃**과 바꾼다. 배열 인덱스로 바로 옮기면
           // 사이에 낀 다른 묶음 항목과 자리를 바꿔 화면이 안 바뀐 것처럼 보인다.
           const pos = parseInt(el.dataset.pos);
-          const cur = groupList(g);
+          const cur = viewList();
           const to = action === 'up' ? pos - 1 : pos + 1;
           if (isNaN(pos) || to < 0 || to >= cur.length) return;
           const a = textList.indexOf(cur[pos]), b = textList.indexOf(cur[to]);
@@ -2384,6 +2452,12 @@
     if (!text) { showError('추가할 텍스트를 입력해 주세요.'); return; }
     const title = $('textItemTitle').value.trim();
     textList.push({ title, text });
+    // 손으로 넣은 글은 '직접' 묶음이다. 다른 칩을 보고 있으면 방금 넣은 글이
+    // 화면에 없어서 안 들어간 줄 안다 — 그 칩으로 옮겨 준다 (2026-08-06).
+    if (blogSub !== 'all' && blogSub !== 'etc') {
+      blogSub = 'etc';
+      try { localStorage.setItem('sori_blog_sub', blogSub); } catch (e) {}
+    }
     $('manualText').value = '';
     $('textItemTitle').value = '';
     tabTexts.blog = '';
@@ -2427,15 +2501,20 @@
   }
 
   // 지금 보고 있는 묶음만 지운다. 유튜브 탭에서 눌렀는데 웹소설까지 사라지면 안 된다.
+  // 블로그 탭에서는 **고른 칩까지** 좁힌다 (2026-08-06) — 웹소설만 보고 있는데
+  // 토스테크·러닝크루까지 없어지면 "보고 있는 것만 건드린다"가 깨진다.
   $('textListClearBtn').addEventListener('click', () => {
     const g = currentGroup();
     if (!g) return;
-    const arr = groupList(g);
+    const arr = viewList();
     if (!arr.length) return;
-    if (!confirm(`${g === 'youtube' ? '유튜브' : '블로그'} 목록을 모두 삭제할까요?`)) return;
+    const label = g === 'youtube' ? '유튜브'
+      : (blogSub === 'all' ? '블로그' : (BLOG_SUBS.find(s => s.key === blogSub) || {}).label);
+    if (!confirm(`${label} 목록을 모두 삭제할까요?`)) return;
+    const doomed = new Set(arr);
     arr.forEach(it => rememberBlogTombstone(it && it.id));
     for (let i = textList.length - 1; i >= 0; i--) {
-      if (groupOf(textList[i]) === g) textList.splice(i, 1);
+      if (doomed.has(textList[i])) textList.splice(i, 1);
     }
     bumpInjectWatermark();
     renderTextList();
@@ -2462,9 +2541,11 @@
       // 이 묶음의 목록만 지운다 — 목록 전체 삭제 버튼과 같은 규칙.
       // yt: 는 상위 목록(나중에 볼 동영상)이 진실이라 기록 없이 지우고(내일 동기화로 되살아남),
       // 블로그 쪽은 묘비를 남겨 원격 목록으로 되살아나지 않게 한다.
-      groupList(tab).forEach(it => rememberBlogTombstone(it && it.id));
+      // 블로그 탭에서는 고른 칩까지 좁힌다 (2026-08-06) — 목록 전체 삭제와 같은 규칙.
+      const doomed = new Set(viewList());
+      doomed.forEach(it => rememberBlogTombstone(it && it.id));
       for (let i = textList.length - 1; i >= 0; i--) {
-        if (groupOf(textList[i]) === tab) textList.splice(i, 1);
+        if (doomed.has(textList[i])) textList.splice(i, 1);
       }
       bumpInjectWatermark();   // 디스크 _inject.js 재주입 방지
       renderTextList();
@@ -2545,10 +2626,12 @@
     const tab = activeTab();
     if (isListTab(tab)) {
       // 목록 재생은 **현재 묶음** 안에서만 이어진다 (유튜브 탭이면 영상 요약만).
-      const arr = groupList(tab);
+      // 블로그 탭이면 고른 칩까지 좁힌다 (2026-08-06).
+      const arr = viewList();
       let t, title;
       if (arr.length > 0) {
         listPlayMode = true;
+        listPlayScope = { g: tab, sub: tab === 'blog' ? blogSub : 'all' };
         listPlayedItems = new Set();
         currentPlayingItem = arr[0];
         t = currentPlayingItem.text;
@@ -2557,6 +2640,7 @@
       } else if (tab === 'blog') {
         // 글 넣는 입력창은 블로그 탭에만 있다.
         listPlayMode = false;
+        listPlayScope = null;
         currentPlayingItem = null;
         t = $('manualText').value.trim();
         if (!t) { showError('텍스트를 입력하거나 목록에 추가해 주세요.'); return; }
