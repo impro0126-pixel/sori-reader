@@ -1493,6 +1493,57 @@
         });
     }
     window._soriPushTombstone = pushTombstoneRemote;
+
+    // ── 상대 기기가 지운 것을 곧바로 따라 지운다 (2026-08-07) ──────
+    // 예전엔 자동화(17시대)가 돌면서 apply_tombstone.py 로 목록 원본에서 빼야 반영됐다.
+    // 그래서 폰에서 지운 글이 맥에서는 다음 날까지 남아 있었다. 여기서 직접 읽어 바로 지운다.
+    // (원본 정리는 apply_tombstone.py 가 그대로 맡는다 — 여긴 화면을 먼저 맞추는 몫이다.)
+    // ⚠️ 지우기만 한다. 이 통로로 항목을 **추가하지 않는다** — 목록의 주인은 _list.json 하나다.
+    // 맥에서도 돈다 — pollRemote 는 맥에서 막혀 있지만(사이드카가 주인), 지움은 방향이 반대다.
+    // 토큰 없이 읽을 수 있게 raw 주소를 쓴다(목록 주소에서 파일 이름만 바꾼다). 읽기만 하므로
+    // 토큰이 없는 기기도 상대가 지운 것을 따라갈 수 있다.
+    function tombstoneRawUrl() {
+      let u = '';
+      try { u = (localStorage.getItem(REMOTE_URL_KEY) || '').trim(); } catch (e) {}
+      if (!u || u.indexOf('/') < 0) return '';
+      return u.replace(/[^/?#]+(\?.*)?$/, TOMB_FILE);
+    }
+
+    function pollTombstones() {
+      const url = tombstoneRawUrl();
+      if (!url) return;
+      // 재생 중에는 목록을 흔들지 않는다 (원격 목록 폴링과 같은 규칙). 다음 회에 반영된다.
+      if (isBusyPlaying()) return;
+      fetch(url + (url.indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now(), { cache: 'no-store' })
+        .then(function (r) {
+          if (r.status === 404) return null;      // 아직 아무도 안 지웠다
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        })
+        .then(function (d) {
+          if (!d || !Array.isArray(d.ids) || !d.ids.length) return;   // 깨진 기록으로 목록을 건드리지 않는다
+          const remote = d.ids.filter(function (i) { return typeof i === 'string' && i; });
+          let tomb = [];
+          try { tomb = JSON.parse(localStorage.getItem('sori_blog_tombstone') || '[]'); } catch (e) {}
+          let added = 0;
+          remote.forEach(function (id) { if (tomb.indexOf(id) < 0) { tomb.push(id); added++; } });
+          if (added) {
+            try { localStorage.setItem('sori_blog_tombstone', JSON.stringify(tomb.slice(-200))); } catch (e) {}
+          }
+          // 지금 목록에 남아 있는 것을 실제로 치운다.
+          const doomed = new Set(remote);
+          let removed = 0;
+          for (let i = textList.length - 1; i >= 0; i--) {
+            if (textList[i] && doomed.has(textList[i].id)) { textList.splice(i, 1); removed++; }
+          }
+          if (removed) {
+            bumpInjectWatermark();   // 디스크 _inject.js 가 이 항목을 다시 넣지 못하게
+            renderTextList();
+          }
+        })
+        .catch(function () { /* 인터넷 없음·주소 틀림 — 조용히 넘어간다 */ });
+    }
+    window._soriPollTombstones = pollTombstones;
     // 토큰 시험. **읽기만 보지 않는다** (2026-08-07) — 읽기는 되고 쓰기는 안 되는 토큰이 있어서,
     // 저장할 때 ✅ 가 떴는데 정작 지움 기록은 조용히 실패하는 상태가 만들어졌다.
     // 그래서 지움 기록 파일을 실제로 한 번 써 본다(있으면 같은 내용 그대로, 없으면 빈 기록).
@@ -1565,9 +1616,15 @@
       setTimeout(pollRemote, 8000);
     }
     setInterval(pollRemote, 5 * 60 * 1000);
+
+    // 지움은 목록보다 자주 본다 (2026-08-07) — "지웠는데 저쪽엔 그대로"가 제일 헷갈린다.
+    // 20초짜리 JSON 한 번이라 부담이 없고, 목록과 달리 **맥에서도** 돈다.
+    setTimeout(pollTombstones, 4000);
+    setInterval(pollTombstones, 20 * 1000);
+
     // 앱을 다시 열었을 때(폰에서 흔한 경우) 곧바로 확인한다.
     document.addEventListener('visibilitychange', function () {
-      if (!document.hidden) pollRemote();
+      if (!document.hidden) { pollRemote(); pollTombstones(); }
     });
   })();
 
@@ -2482,7 +2539,7 @@
         if (action === 'del') {
           const idx = parseInt(el.dataset.idx);
           if (isNaN(idx) || idx < 0) return;
-          rememberBlogTombstone(textList[idx] && textList[idx].id);
+          rememberTombstone(textList[idx] && textList[idx].id);
           textList.splice(idx, 1);
           bumpInjectWatermark();
         } else {
@@ -2545,18 +2602,21 @@
     } catch (e) {}
   }
 
-  // 지운 항목이 원격 목록(비밀 Gist)으로 다음 날 되살아나는 걸 막는 기록. (2026-08-02)
-  // 영상(yt:)만 기록하지 않는다 — "나중에 볼 동영상"이 상위 목록이라 되살아나는 게 맞는 동작이고,
-  // 지우고 싶으면 유튜브 앱에서 빼면 된다. 블로그 연재물(blog:)·토스테크(toss:)처럼 상위 목록이
-  // 없는 것들은 여기서 기억한다. 새 자동화가 다른 접두사를 쓰더라도 자동으로 포함된다.
+  // 지운 항목이 원격 목록(비밀 Gist)·맥 통로로 되살아나는 걸 막는 기록. (2026-08-02)
+  // **모든 항목이 같은 규칙이다** (2026-08-07 사용자 지시 "규칙이 서로 달라 헷갈린다").
+  //   지운 것은 유튜브든 블로그든 다시 오지 않고, 양쪽 기기에서 같이 사라진다.
+  // 예전엔 영상(yt:)만 기록하지 않아 다음 날 되살아났다 — "나중에 볼 동영상"이 상위 목록이니
+  //   거기서 빼라는 뜻이었는데, 지우는 곳이 항목마다 달라 헷갈린다는 게 사용자 판단이다.
+  //   이제 앱에서 지우면 WL 에 남아 있어도 안 돌아온다(자동화가 다시 넣어도 여기서 걸러낸다).
   // 기록 청소는 원격 폴링 쪽에서 한다: 원격 목록에서 빠진 id 의 기록은 자동으로 지워진다.
-  // (저장소 키 이름의 blog 는 처음 만들 때 흔적 — 실제로는 yt: 아닌 전부를 담는다)
-  function rememberBlogTombstone(id) {
-    if (!id || String(id).startsWith('yt:')) return;
+  // (저장소 키 이름의 blog 는 처음 만들 때 흔적 — 지금은 전부를 담는다)
+  function rememberTombstone(id) {
+    if (!id) return;
     try {
       const t = JSON.parse(localStorage.getItem('sori_blog_tombstone') || '[]');
       if (t.indexOf(id) < 0) t.push(id);
-      localStorage.setItem('sori_blog_tombstone', JSON.stringify(t.slice(-50)));
+      // 유튜브까지 담으므로 예전 50 개로는 모자란다 — Gist 쪽 상한(200)과 맞춘다.
+      localStorage.setItem('sori_blog_tombstone', JSON.stringify(t.slice(-200)));
     } catch (e) {}
     // 다른 기기에도 알린다 (2026-08-05). 토큰이 없으면 아무 일도 안 일어난다 —
     // 이 기기 안에서만 지워진 예전 동작 그대로다.
@@ -2575,7 +2635,7 @@
       : (blogSub === 'all' ? '블로그' : (BLOG_SUBS.find(s => s.key === blogSub) || {}).label);
     if (!confirm(`${label} 목록을 모두 삭제할까요?`)) return;
     const doomed = new Set(arr);
-    arr.forEach(it => rememberBlogTombstone(it && it.id));
+    arr.forEach(it => rememberTombstone(it && it.id));
     for (let i = textList.length - 1; i >= 0; i--) {
       if (doomed.has(textList[i])) textList.splice(i, 1);
     }
@@ -2602,11 +2662,10 @@
       $('ocrResultSection').classList.remove('visible');
     } else {
       // 이 묶음의 목록만 지운다 — 목록 전체 삭제 버튼과 같은 규칙.
-      // yt: 는 상위 목록(나중에 볼 동영상)이 진실이라 기록 없이 지우고(내일 동기화로 되살아남),
-      // 블로그 쪽은 묘비를 남겨 원격 목록으로 되살아나지 않게 한다.
+      // 유튜브든 블로그든 묘비를 남긴다 (2026-08-07 통일) — 지운 건 다시 오지 않는다.
       // 블로그 탭에서는 고른 칩까지 좁힌다 (2026-08-06) — 목록 전체 삭제와 같은 규칙.
       const doomed = new Set(viewList());
-      doomed.forEach(it => rememberBlogTombstone(it && it.id));
+      doomed.forEach(it => rememberTombstone(it && it.id));
       for (let i = textList.length - 1; i >= 0; i--) {
         if (doomed.has(textList[i])) textList.splice(i, 1);
       }
