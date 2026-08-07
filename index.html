@@ -633,7 +633,7 @@
         </div>
         <div style="font-size:0.76rem; color:#8890cc; margin-top:8px; line-height:1.5;">
           맥이 꺼져 있거나 잠들어 있어도 이 주소에서 목록을 받아옵니다. 비워두면 맥에 연결됐을 때만 목록이 갱신됩니다.<br>
-          토큰까지 넣으면 <b>여기서 지운 블로그 글이 다른 기기에서도 다음 날 사라집니다.</b> 비워두면 이 기기에서만 지워집니다.
+          <b>지운 글은 다른 기기에서도 20초 안에 사라집니다.</b> 맥에서는 토큰이 필요 없고, <b>아이폰에서 지운 것</b>을 맥에도 알리려면 토큰이 필요합니다.
         </div>
         <div style="display:flex; justify-content:flex-end; margin-top:auto; padding-top:0; min-height:1.2em;">
           <div class="api-status" id="remoteListStatus" style="margin-top:0;"></div>
@@ -1455,10 +1455,34 @@
 
     function flushTombstones() {
       if (!tombQueue.length) return;
+      const ids = tombQueue.slice();
+      // 맥에서는 토큰이 필요 없다 (2026-08-07). 맥 서버에 이미 로그인된 gh 가 있어서,
+      // 앱은 "이거 지웠다"고 알려만 주면 서버가 대신 Gist 에 적는다.
+      // 아이폰은 https 페이지라 이 로컬 주소에 닿지 못한다 — 거기서만 토큰이 필요하다.
+      if (location.protocol === 'http:') {
+        fetch('/tombstone', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: ids })
+        }).then(function (r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          tombQueue = [];
+          try { localStorage.removeItem(TOMB_ERR_KEY); } catch (e) {}
+        }).catch(function (err) {
+          // 서버가 옛 판이거나 gh 가 막혔다 — 토큰이 있으면 그 길로 다시 시도한다.
+          if (gistToken() && gistIdFromRemote()) { flushViaToken(ids); return; }
+          const m = (err && err.message) || String(err);
+          try { localStorage.setItem(TOMB_ERR_KEY, m); } catch (e) {}
+          showTombError(m);
+        });
+        return;
+      }
+      flushViaToken(ids);
+    }
+
+    function flushViaToken(ids) {
       const token = gistToken();
       const gid = gistIdFromRemote();
       if (!token || !gid) return;   // 설정 전 — 이 기기 안에서만 지운 것으로 남는다
-      const ids = tombQueue.slice();
       const api = 'https://api.github.com/gists/' + gid;
       // 남의 기록을 지우지 않으려고 먼저 읽어서 합친다 (두 기기가 각각 지울 수 있다).
       fetch(api, { headers: gistHeaders(token), cache: 'no-store' })
