@@ -1407,6 +1407,20 @@
     // 토큰이 없으면 조용히 넘어간다 — 예전처럼 이 기기에서만 지워진 상태가 된다.
     const GIST_TOKEN_KEY = 'sori_gist_token';
     const TOMB_FILE = 'sori_tombstone.json';
+    const TOMB_ERR_KEY = 'sori_tomb_error';
+
+    // 지움 기록 올리기가 실패했다는 걸 설정 화면에 남긴다 (2026-08-07).
+    function showTombError(msg) {
+      const el = document.getElementById('remoteListStatus');
+      if (!el) return;
+      el.className = 'api-status err';
+      el.textContent = '❌ 지움 기록을 못 올렸어요 (' + msg + ') — 토큰 칸의 저장을 다시 눌러 확인해 보세요';
+      el.style.visibility = 'visible';
+    }
+    try {
+      const prevErr = localStorage.getItem(TOMB_ERR_KEY);
+      if (prevErr) setTimeout(function () { showTombError(prevErr); }, 1200);
+    } catch (e) {}
 
     // 목록 주소에서 Gist id(긴 16진수)만 뽑는다. 주소 자체를 코드에 두지 않기 위해서다
     // (공개본에 비밀 주소가 섞여 들어가는 걸 publish_app.sh 가 막고 있기도 하다).
@@ -1465,19 +1479,48 @@
             tombQueue = [];
           });
         })
+        .then(function (r) {
+          if (r !== null) { try { localStorage.removeItem(TOMB_ERR_KEY); } catch (e) {} }
+        })
         .catch(function (err) {
           // 큐를 비우지 않는다 — 다음에 뭘 지울 때 같이 다시 올라간다.
+          // ⚠️ 예전엔 console.warn 만 했다 (2026-08-07 수정). 그러면 "다른 기기에서도 지워졌겠지"
+          //    하고 믿게 된다 — 이 프로젝트가 조용한 실패로 여러 번 당한 그 모양이다. 눈에 보이게 남긴다.
+          const m = (err && err.message) || String(err);
+          try { localStorage.setItem(TOMB_ERR_KEY, m); } catch (e) {}
+          showTombError(m);
           console.warn('지움 기록 올리기 실패', err);
         });
     }
     window._soriPushTombstone = pushTombstoneRemote;
+    // 토큰 시험. **읽기만 보지 않는다** (2026-08-07) — 읽기는 되고 쓰기는 안 되는 토큰이 있어서,
+    // 저장할 때 ✅ 가 떴는데 정작 지움 기록은 조용히 실패하는 상태가 만들어졌다.
+    // 그래서 지움 기록 파일을 실제로 한 번 써 본다(있으면 같은 내용 그대로, 없으면 빈 기록).
+    // 빈 기록은 apply_tombstone.py 가 "지울 것 없음"으로 읽으므로 목록에 아무 영향이 없다.
     window._soriTestGistToken = function (token, gid) {
-      return fetch('https://api.github.com/gists/' + gid, {
-        headers: gistHeaders(token), cache: 'no-store'
-      }).then(function (r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
-      });
+      const api = 'https://api.github.com/gists/' + gid;
+      return fetch(api, { headers: gistHeaders(token), cache: 'no-store' })
+        .then(function (r) {
+          if (!r.ok) throw new Error('읽기 HTTP ' + r.status);
+          return r.json();
+        })
+        .then(function (d) {
+          let content = '';
+          try {
+            const f = d.files && d.files[TOMB_FILE];
+            if (f && f.content) content = f.content;
+          } catch (e) {}
+          if (!content) content = JSON.stringify({ ts: Date.now(), ids: [] });
+          const body = { files: {} };
+          body.files[TOMB_FILE] = { content: content };
+          return fetch(api, {
+            method: 'PATCH', headers: gistHeaders(token), body: JSON.stringify(body)
+          }).then(function (r) {
+            if (!r.ok) throw new Error('쓰기 HTTP ' + r.status);
+            try { localStorage.removeItem(TOMB_ERR_KEY); } catch (e) {}
+            return true;
+          });
+        });
     };
     window._soriGistIdFromRemote = gistIdFromRemote;
 
@@ -3669,7 +3712,9 @@
       flash('✓', '#27ae60', 2000);
     }).catch(err => {
       const m = (err && err.message) || '연결 실패';
-      setStatus('err', '❌ 확인 실패 (' + m + ')' + (/40[13]/.test(m) ? ' — gist 권한이 있는 토큰인지 보세요' : ''));
+      setStatus('err', '❌ 확인 실패 (' + m + ')' + (/40[13]/.test(m)
+        ? (/쓰기/.test(m) ? ' — 읽기는 되는데 쓰기가 안 됩니다. gist 쓰기 권한을 켜 주세요'
+                          : ' — gist 권한이 있는 토큰인지 보세요') : ''));
       flash('❌', '#c0392b', 3000);
     });
   });
