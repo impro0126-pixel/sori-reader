@@ -2671,14 +2671,19 @@
       const cut = lastFivePM();
       const at = JSON.parse(localStorage.getItem(YT_TOMB_AT_KEY) || '{}');
       const tomb = JSON.parse(localStorage.getItem('sori_blog_tombstone') || '[]');
-      // 시각 기록이 없는 옛 yt 묘비는 만료로 본다 (어차피 17시에 재설정될 것들이다).
+      // ⚠️ 시각 기록이 없는 yt 묘비를 만료로 보지 말 것 (2026-08-07 사고).
+      //    시각을 적기 시작한 건 이 규칙을 넣으면서부터라, 그 전에 지운 기록에는 시각이 없다.
+      //    그걸 "오래된 것"으로 몰아 잊었더니 방금 초기화한 유튜브 13건이 통째로 되살아났다.
+      //    모르면 지금 본 시각을 찍어 두고 거기서부터 잰다 — 최소한 다음 17시까지는 지켜진다.
+      let stamped = false;
       const kept = tomb.filter(id => {
         if (!String(id).startsWith('yt:')) return true;
-        if ((at[id] || 0) >= cut) return true;
+        if (!at[id]) { at[id] = Date.now(); stamped = true; return true; }
+        if (at[id] >= cut) return true;
         delete at[id];
         return false;
       });
-      if (kept.length !== tomb.length) {
+      if (kept.length !== tomb.length || stamped) {
         localStorage.setItem('sori_blog_tombstone', JSON.stringify(kept));
         localStorage.setItem(YT_TOMB_AT_KEY, JSON.stringify(at));
       }
