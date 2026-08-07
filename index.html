@@ -1286,6 +1286,7 @@
     // 원격 목록에서 아예 빠진 id 의 기록은 지워 무한히 쌓이지 않게 한다.
     function dropTombstoned(items) {
       try {
+        pruneYoutubeTombstones();   // 17시가 지났으면 유튜브 묘비부터 잊는다 (2026-08-07)
         const tomb = JSON.parse(localStorage.getItem('sori_blog_tombstone') || '[]');
         if (!tomb.length) return items;
         const present = new Set(items.map(it => it && it.id));
@@ -1538,6 +1539,7 @@
     }
 
     function pollTombstones() {
+      pruneYoutubeTombstones();   // 17시 경계를 넘겼으면 유튜브 묘비를 먼저 잊는다 (2026-08-07)
       const url = tombstoneRawUrl();
       if (!url) return;
       // 재생 중에는 목록을 흔들지 않는다 (원격 목록 폴링과 같은 규칙). 다음 회에 반영된다.
@@ -1556,7 +1558,19 @@
           let added = 0;
           remote.forEach(function (id) { if (tomb.indexOf(id) < 0) { tomb.push(id); added++; } });
           if (added) {
-            try { localStorage.setItem('sori_blog_tombstone', JSON.stringify(tomb.slice(-200))); } catch (e) {}
+            try {
+              localStorage.setItem('sori_blog_tombstone', JSON.stringify(tomb.slice(-200)));
+              // 상대가 지운 유튜브 항목에도 시각을 남긴다 (2026-08-07). 안 남기면 바로 다음
+              // pruneYoutubeTombstones 가 "옛 기록"으로 보고 지워, 같은 날인데도 영상이 돌아온다.
+              // 기준 시각은 기록이 쓰인 때(d.ts) — 그게 상대가 지운 시각이다.
+              const stamp = (typeof d.ts === 'number' && d.ts) ? d.ts : Date.now();
+              const at = JSON.parse(localStorage.getItem(YT_TOMB_AT_KEY) || '{}');
+              let touched = false;
+              remote.forEach(function (id) {
+                if (String(id).startsWith('yt:') && !at[id]) { at[id] = stamp; touched = true; }
+              });
+              if (touched) localStorage.setItem(YT_TOMB_AT_KEY, JSON.stringify(at));
+            } catch (e) {}
           }
           // 지금 목록에 남아 있는 것을 실제로 치운다.
           const doomed = new Set(remote);
@@ -2638,6 +2652,39 @@
   //   이제 앱에서 지우면 WL 에 남아 있어도 안 돌아온다(자동화가 다시 넣어도 여기서 걸러낸다).
   // 기록 청소는 원격 폴링 쪽에서 한다: 원격 목록에서 빠진 id 의 기록은 자동으로 지워진다.
   // (저장소 키 이름의 blog 는 처음 만들 때 흔적 — 지금은 전부를 담는다)
+  // ── 유튜브 지움은 다음 17시까지만 (2026-08-07) ──────────────
+  // 사용자 규칙: **매일 오후 5시에는 "나중에 볼 동영상" 목록으로 모두 동기화된다.**
+  // 그래서 유튜브 묘비는 그날치다 — 17시가 지나면 잊고, WL 에 남아 있는 영상은 돌아온다.
+  // (WL 에서 뺀 영상은 애초에 목록에 안 실리므로 그대로 사라진 채다.)
+  // 셸도 같은 시각에 Gist 의 지움 기록에서 yt: 를 비운다(apply_tombstone.py --forget-youtube).
+  // 두 쪽이 같은 벽시계 경계를 보므로 따로 신호를 주고받지 않아도 어긋나지 않는다.
+  // ⚠️ 블로그·토스테크·웹소설 묘비는 여기서 건드리지 않는다 — 그쪽은 영구 삭제가 맞는 동작이다.
+  const YT_TOMB_AT_KEY = 'sori_yt_tomb_at';   // { id: 지운 시각(ms) }
+  function lastFivePM() {
+    const now = new Date();
+    const t = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 17, 0, 0, 0);
+    if (now < t) t.setDate(t.getDate() - 1);
+    return t.getTime();
+  }
+  function pruneYoutubeTombstones() {
+    try {
+      const cut = lastFivePM();
+      const at = JSON.parse(localStorage.getItem(YT_TOMB_AT_KEY) || '{}');
+      const tomb = JSON.parse(localStorage.getItem('sori_blog_tombstone') || '[]');
+      // 시각 기록이 없는 옛 yt 묘비는 만료로 본다 (어차피 17시에 재설정될 것들이다).
+      const kept = tomb.filter(id => {
+        if (!String(id).startsWith('yt:')) return true;
+        if ((at[id] || 0) >= cut) return true;
+        delete at[id];
+        return false;
+      });
+      if (kept.length !== tomb.length) {
+        localStorage.setItem('sori_blog_tombstone', JSON.stringify(kept));
+        localStorage.setItem(YT_TOMB_AT_KEY, JSON.stringify(at));
+      }
+    } catch (e) {}
+  }
+
   function rememberTombstone(id) {
     if (!id) return;
     try {
@@ -2645,6 +2692,11 @@
       if (t.indexOf(id) < 0) t.push(id);
       // 유튜브까지 담으므로 예전 50 개로는 모자란다 — Gist 쪽 상한(200)과 맞춘다.
       localStorage.setItem('sori_blog_tombstone', JSON.stringify(t.slice(-200)));
+      if (String(id).startsWith('yt:')) {
+        const at = JSON.parse(localStorage.getItem(YT_TOMB_AT_KEY) || '{}');
+        at[id] = Date.now();
+        localStorage.setItem(YT_TOMB_AT_KEY, JSON.stringify(at));
+      }
     } catch (e) {}
     // 다른 기기에도 알린다 (2026-08-05). 토큰이 없으면 아무 일도 안 일어난다 —
     // 이 기기 안에서만 지워진 예전 동작 그대로다.
