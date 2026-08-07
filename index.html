@@ -1531,7 +1531,13 @@
     // 맥에서도 돈다 — pollRemote 는 맥에서 막혀 있지만(사이드카가 주인), 지움은 방향이 반대다.
     // 토큰 없이 읽을 수 있게 raw 주소를 쓴다(목록 주소에서 파일 이름만 바꾼다). 읽기만 하므로
     // 토큰이 없는 기기도 상대가 지운 것을 따라갈 수 있다.
+    // 지움 기록을 어디서 읽나.
+    // 맥(http)은 **맥 서버**에서 받는다 (2026-08-07). 맥 앱은 "목록 주소"를 안 넣어도 되게
+    // 돼 있어서(사이드카가 목록의 주인), 주소에 기대면 맥에서는 확인 자체를 못 한다 —
+    // 실제로 그래서 지운 기록이 안 맞춰지고 "보냈는데 안 들어온다"가 반복됐다.
+    // 아이폰(https)은 맥에 닿지 못하므로 Gist raw 주소로 직접 읽는다(토큰 없이 읽힌다).
     function tombstoneRawUrl() {
+      if (location.protocol === 'http:') return '/tombstone';
       let u = '';
       try { u = (localStorage.getItem(REMOTE_URL_KEY) || '').trim(); } catch (e) {}
       if (!u || u.indexOf('/') < 0) return '';
