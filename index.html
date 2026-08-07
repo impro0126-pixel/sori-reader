@@ -727,22 +727,30 @@
   // 블로그 탭 하나에 웹소설·토스테크·HR 이 뒤섞여 "뭐가 뭔지" 구분이 안 됐다.
   // 상단 탭을 늘리는 대신(아이폰에서 이미 0.74rem 까지 줄었다) 목록 위에 칩 줄을 둔다.
   // 판별 기준은 자동화가 붙이는 id 접두사 하나뿐이다 — 제목·본문을 넘겨짚지 않는다.
+  // 웹소설은 연재물별로 따로 둔다 (2026-08-07) — 두 소설이 한 칩에 섞이면
+  // 이어읽기가 딴 소설로 튄다. id 가 novel:<연재물키>:<글번호> 라 갈라내기만 하면 된다.
   const BLOG_SUBS = [
-    { key: 'all',   label: '전체',      hint: '아직 글이 없어요. 위에서 주소를 넣거나 직접 붙여넣어 추가할 수 있어요.' },
-    { key: 'novel', label: '📖 웹소설',  hint: '아직 연재분이 없어요. 매일 저녁 자동으로 들어옵니다.' },
-    { key: 'toss',  label: '🛠 토스테크', hint: '아직 토스테크 글이 없어요. 매일 저녁 자동으로 들어옵니다.' },
-    { key: 'hr',    label: '👥 HR',     hint: '아직 러닝크루 글이 없어요. 새 글이 올라오면 들어옵니다.' },
-    { key: 'etc',   label: '✏️ 직접',    hint: '직접 넣은 글이 없어요. 위 입력창으로 추가할 수 있어요.' },
+    { key: 'all',       label: '전체',            hint: '아직 글이 없어요. 위에서 주소를 넣거나 직접 붙여넣어 추가할 수 있어요.' },
+    { key: 'udangtang', label: '📖 우당탕탕',      hint: '아직 우당탕탕 커리어 연재분이 없어요. 매일 저녁 자동으로 들어옵니다.' },
+    { key: 'teheran',   label: '🌙 테헤란의 밤',   hint: '아직 테헤란의 밤 연재분이 없어요. 매일 저녁 자동으로 들어옵니다.' },
+    { key: 'toss',      label: '🛠 토스테크',      hint: '아직 토스테크 글이 없어요. 매일 저녁 자동으로 들어옵니다.' },
+    { key: 'hr',        label: '👥 HR',           hint: '아직 러닝크루 글이 없어요. 새 글이 올라오면 들어옵니다.' },
+    { key: 'etc',       label: '✏️ 직접',          hint: '직접 넣은 글이 없어요. 위 입력창으로 추가할 수 있어요.' },
   ];
+  // 연재물이 늘면 여기 한 줄만 더한다 (자동화의 SERIES key 와 같은 말을 쓸 것).
+  const NOVEL_SUBS = { udangtang: 'udangtang', teheran: 'teheran' };
   const subOf = (item) => {
     const id = String((item && item.id) || '');
-    if (id.startsWith('novel:'))  return 'novel';   // 웹소설 (우당탕탕 커리어 · 테헤란의 밤)
+    if (id.startsWith('novel:')) {                  // 웹소설 — 연재물별로 가른다
+      return NOVEL_SUBS[id.split(':')[1]] || 'etc'; // 모르는 연재물은 '직접'에 둔다(사라지지 않게)
+    }
     if (id.startsWith('toss:'))   return 'toss';    // 토스테크
     if (id.startsWith('follow:')) return 'hr';      // 러닝크루 등 follow 모드 블로그
     return 'etc';                                    // id 없는 것 = 손으로 넣은 글
   };
   const isSubKey = (k) => BLOG_SUBS.some(s => s.key === k);
   let blogSub = localStorage.getItem('sori_blog_sub') || 'all';
+  // 없어진 칩(예: 둘로 나뉘기 전의 'novel')을 보고 있었으면 전체로 돌린다.
   if (!isSubKey(blogSub)) blogSub = 'all';
   const filterSub = (arr, sub) => (!sub || sub === 'all') ? arr : arr.filter(it => subOf(it) === sub);
 
