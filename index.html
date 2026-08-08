@@ -2911,11 +2911,12 @@
         const remainMs = Math.max(200, timerDurationMs * (chunkEndPct - curPct) / remainRange);
         startProgressTimer(curPct, chunkEndPct, remainMs);
       } else if (currentAudio) {
+        // 타이머를 걸지 않는다 (2026-08-08). 구간 재생에서 진행률은 ontimeupdate 가
+        // 실시간으로 그리는데, 여기서 타이머까지 걸면 둘이 150ms마다 서로 덮어쓴다.
+        // 게다가 chunkEndPct 는 브라우저 엔진 전용 값이라 구간 재생에선 0/낡은 값 —
+        // 타이머가 진행률을 그쪽으로 "뒤로" 끌고 가 막대가 앞뒤로 널뛰었다.
+        // 잠금화면 일시정지→재개가 이 경로라 밖에서 들을 때마다 재현됐다.
         currentAudio.play();
-        const remainMs = isFinite(currentAudio.duration) && currentAudio.duration > 0
-          ? Math.max(200, (currentAudio.duration - currentAudio.currentTime) * 1000)
-          : Math.max(200, timerDurationMs * (chunkEndPct - curPct) / remainRange);
-        startProgressTimer(curPct, chunkEndPct, remainMs);
       }
       setButtons(true); statusEl().textContent = '🔊 읽는 중...';
       return;
