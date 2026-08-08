@@ -2610,10 +2610,13 @@
   function renderTextList() {
     saveTextList();
     // 목록이 바뀌면 "아직 안 받은 문장" 수도 달라진다 (오프라인 저장 표시).
-    // try 로 감싼 이유: 이 함수는 스크립트 초기화 중에도 한 번 불리는데(위 2101줄),
+    // try 로 감싼 이유: 이 함수는 스크립트 초기화 중에도 한 번 불리는데(초기 렌더),
     // 그 시점엔 오프라인 저장 블록의 변수들이 아직 선언 전이라 건드리면 예외가 난다.
     // 여기서 예외가 새면 목록이 통째로 안 그려진다 — 초기 표시는 그 블록 끝에서 따로 한다.
-    try { refreshOfflineStatus(); } catch (e) {}
+    // ⚠️ refreshOfflineStatus 는 async 다. 안에서 난 예외는 **이 try 로 안 잡히고**
+    //    거부된 프로미스로 빠져나가 콘솔에 "Uncaught (in promise)" 로 남는다 (2026-08-08).
+    //    그래서 .catch 로도 한 번 더 받는다. try 는 동기 예외용으로 그대로 둔다.
+    try { const p = refreshOfflineStatus(); if (p && p.catch) p.catch(() => {}); } catch (e) {}
     // 목록 탭(유튜브·블로그)이 아닐 때는 그릴 화면이 없다. 저장만 하고 끝낸다.
     const g = currentGroup();
     if (!g) return;
