@@ -801,6 +801,31 @@
   const segReady = new Map();   // 구간번호 -> {url, byteCum, totalBytes, s, e}
   const segBuilding = new Map();// 구간번호 -> 만드는 중인 Promise
   let segRetried = -1;          // 재생 실패로 한 번 다시 만들어 본 구간 — 무한 재시도 방지
+  // 이어 붙인 mp3 의 duration 은 못 믿는다 (2026-08-08).
+  // mp3 를 그대로 이어 붙이면 브라우저는 **맨 앞 파일의 헤더**로 전체 길이를 어림잡는다.
+  // 실측(크로미움, 40.4초+37.4초=77.8초짜리): 처음엔 73.2초로 나오다가 70초를 지나면서
+  // 조금씩 늘어 끝에야 77.8초가 됐다. 사파리는 첫 조각 길이만 내놓기도 한다.
+  // 그래서 duration 으로 진행률을 그리면 구간 안에서 100% 를 넘겨 앞질러 가다가
+  // 다음 구간이 시작될 때 그 구간의 시작 퍼센트로 **뒤로 떨어진다** — 소리는 멀쩡한데
+  // 막대만 널뛰던 증상이 이것이다.
+  // 대신 "초당 바이트"를 재생이 끝난 구간에서 실측해 길이를 추정한다. 음성이 늘 같은
+  // 엔진·같은 비트레이트라 한 번 재면 계속 맞는다. 다음 실행에서도 쓰게 저장해 둔다.
+  const BPS_KEY = 'sori_mp3_bps';
+  let mp3Bps = 0;
+  try { mp3Bps = parseFloat(localStorage.getItem(BPS_KEY)) || 0; } catch (e) {}
+  function segDuration(seg) {
+    const est = mp3Bps > 0 ? seg.totalBytes / mp3Bps : 0;
+    const rep = playerEl.duration;
+    return Math.max(est, isFinite(rep) && rep > 0 ? rep : 0, playerEl.currentTime);
+  }
+  function learnBps(seg) {
+    const d = playerEl.duration;   // 끝까지 재생된 뒤의 duration 은 실제와 맞다
+    if (!isFinite(d) || d <= 1) return;
+    const bps = seg.totalBytes / d;
+    if (!(bps > 0)) return;
+    mp3Bps = mp3Bps > 0 ? mp3Bps * 0.7 + bps * 0.3 : bps;
+    try { localStorage.setItem(BPS_KEY, String(mp3Bps)); } catch (e) {}
+  }
   const audioCache = new Map(); // chunkIdx -> Promise<Audio>
   const MAX_CONCURRENT = 5;
   let activeFetches = 0;
@@ -3595,22 +3620,26 @@
     // 경계는 바이트 비례 근사라 몇십 ms 어긋날 수 있지만 문장 시작을 놓칠 정도는 아니다.
     if (chunkIndex > seg.s) {
       const frac = seg.byteCum[chunkIndex - 1 - seg.s] / seg.totalBytes;
-      const seek = () => { if (isFinite(playerEl.duration) && playerEl.duration > 0) playerEl.currentTime = frac * playerEl.duration + 0.03; };
+      const seek = () => { const D = segDuration(seg); if (D > 0) playerEl.currentTime = frac * D + 0.03; };
       if (isFinite(playerEl.duration) && playerEl.duration > 0) seek();
       else playerEl.addEventListener('loadedmetadata', seek, { once: true });
     }
 
+    // 구간 안에서 진행률은 반드시 앞으로만 간다 — duration 이 재생 도중 늘어나도
+    // 비율이 줄지 않게 여기서 붙잡는다.
+    let segMaxR = 0;
     playerEl.ontimeupdate = () => {
       if (isStopped || sid !== playSession) return;
-      const D = playerEl.duration;
-      if (!isFinite(D) || D <= 0) return;
-      const bytePos = (playerEl.currentTime / D) * seg.totalBytes;
+      const D = segDuration(seg);
+      if (!(D > 0)) return;
+      const r = segMaxR = Math.max(segMaxR, Math.min(1, playerEl.currentTime / D));
+      const bytePos = r * seg.totalBytes;
       let k = 0;
       while (k < seg.byteCum.length - 1 && bytePos >= seg.byteCum[k]) k++;
       const idx = seg.s + k;
       if (idx !== chunkIndex) { chunkIndex = idx; highlightChunk(idx); updateNavButtons(); }
       const segStartChars = seg.s > 0 ? cumChars[seg.s - 1] : 0;
-      const pct = Math.round((segStartChars + (cumChars[seg.e] - segStartChars) * (playerEl.currentTime / D)) / totalChars * 100);
+      const pct = Math.round((segStartChars + (cumChars[seg.e] - segStartChars) * r) / totalChars * 100);
       setProgress(pct);
       statusEl().textContent = `🔊 읽는 중... (${pct}%)`;
     };
@@ -3619,6 +3648,7 @@
       if (isStopped || sid !== playSession) return;
       clearProgressTimer();
       segRetried = -1;
+      learnBps(seg);   // 끝까지 돈 구간으로 초당 바이트를 실측 — 다음 구간 길이 추정에 쓴다
       // 다 들은 구간은 바로 놓아 준다 — 언제나 구간 두어 개만 살아 있게 (아이폰 메모리 보호).
       segReady.delete(seg.si); try { URL.revokeObjectURL(seg.url); } catch (e) {}
       chunkIndex = seg.e + 1;
