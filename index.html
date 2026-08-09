@@ -1129,12 +1129,14 @@
     $('tab-' + tabName).classList.add('active');
 
     if (!keepPlaying) stopAll();
-    // 설정·최근 탭에서는 컨트롤/진행률 영역 숨김.
-    // 단 재생 중이면 어느 탭에서든 보여준다 — 듣다가 설정에 들렀을 때 멈출 방법이 있어야 한다.
-    const hideCtl = (tabName === 'history' || tabName === 'settings') && !keepPlaying;
-    document.querySelector('.controls').style.display = hideCtl ? 'none' : '';
-    document.querySelector('.progress-wrap').style.display = hideCtl ? 'none' : '';
-    $('status').style.display = hideCtl ? 'none' : '';
+    // 설정·최근 탭에서는 컨트롤/진행률 영역 숨김. 재생 중이어도 숨긴다 —
+    // 한때 "듣다가 설정에서도 멈출 수 있게" 보여줬는데 초기화 버튼까지 딸려 나와
+    // 설정 화면에 있을 이유가 없는 물건이 됐다 (2026-08-09 사용자 지적). 되돌리지 말 것.
+    // 소리는 그대로 나고, 멈추려면 잠금화면·이어폰 조작이나 원래 탭으로 돌아가면 된다.
+    const isUtilTab = tabName === 'history' || tabName === 'settings';
+    document.querySelector('.controls').style.display = isUtilTab ? 'none' : '';
+    document.querySelector('.progress-wrap').style.display = isUtilTab ? 'none' : '';
+    $('status').style.display = isUtilTab ? 'none' : '';
 
     // 목록 블록은 유튜브·블로그 탭이 함께 쓴다. 탭이 바뀌면 그 묶음만 다시 그린다.
     $('listBlock').style.display = isListTab(tabName) ? '' : 'none';
